@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hypersonic Parametric Watertight Waverider &amp; RCS Studio</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand-title">
+      <h1>Hypersonic Watertight Waverider &amp; UHF–X Band RCS Studio</h1>
+      <span id="watertight-badge" class="badge-watertight">PASS · 2-Manifold Watertight (&#967; = 2)</span>
+    </div>
+    <div class="header-actions">
+      <button type="button" id="btn-export-stl" class="btn-primary">Download Watertight .STL</button>
+      <button type="button" id="btn-export-obj">Download Grouped .OBJ</button>
+      <button type="button" id="btn-open-matlab">MATLAB Code</button>
+      <button type="button" id="btn-open-gallery">MATLAB Figure Gallery</button>
+    </div>
+  </header>
+
+  <div class="dashboard-layout">
+    <aside class="sidebar-controls" aria-label="Waverider Parametric Controls">
+      <!-- 1. Waverider Family & Presets -->
+      <section class="control-group">
+        <h2>1. Waverider Family &amp; Presets</h2>
+        <div class="preset-row">
+          <button type="button" data-preset="osculating_cone">Osculating Cone</button>
+          <button type="button" data-preset="conical">Conical (TM)</button>
+          <button type="button" data-preset="caret">Caret (Wedge)</button>
+          <button type="button" data-preset="cst">CST Boost-Glide</button>
+        </div>
+        <button type="button" data-preset="booster_mounted" style="width:100%; margin-bottom:0.65rem;">
+          Preset: Waverider + Conformal Booster Mount
+        </button>
+
+        <div class="field-row">
+          <label class="field-label" for="sel-method">Generation Method</label>
+          <select id="sel-method">
+            <option value="osculating_cone" selected>Osculating Cones (Sobieczky)</option>
+            <option value="conical">Axisymmetric Cone-Derived (Taylor-Maccoll)</option>
+            <option value="caret">Nonweiler Caret / 2D Oblique Wedge</option>
+            <option value="cst">Kulfan CST Boost-Glide Body</option>
+          </select>
+        </div>
+      </section>
+
+      <!-- 2. Flight Condition & Planform Geometry -->
+      <section class="control-group">
+        <h2>2. Planform &amp; Shock Wave</h2>
+
+        <div class="field-row">
+          <label class="field-label" for="rng-mach">
+            <span>Design Mach Number (M<sub>&infin;</sub>)</span>
+            <span class="field-value" id="val-mach">7.0</span>
+          </label>
+          <input type="range" id="rng-mach" min="3.5" max="15.0" step="0.5" value="7.0" />
+        </div>
+
+        <div class="field-row">
+          <label class="field-label" for="rng-beta">
+            <span>Shock Wave Angle (&beta;)</span>
+            <span class="field-value" id="val-beta">13.5&deg;</span>
+          </label>
+          <input type="range" id="rng-beta" min="10.0" max="24.0" step="0.5" value="13.5" />
+        </div>
+
+        <div class="field-row">
+          <label class="field-label" for="rng-length">
+            <span>Forebody Length (L)</span>
+            <span class="field-value" id="val-length">5.50 m</span>
+          </label>
+          <input type="range" id="rng-length" min="2.5" max="10.0" step="0.25" value="5.5" />
+        </div>
+
+        <div class="field-row">
+          <label class="field-label" for="rng-span">
+            <span>Half-Span (b / 2)</span>
+            <span class="field-value" id="val-span">1.75 m</span>
+          </label>
+          <input type="range" id="rng-span" min="0.8" max="3.5" step="0.05" value="1.75" />
+        </div>
+
+        <div class="field-row">
+          <label class="field-label" for="rng-power">
+            <span>Planform Exponent (P)</span>
+            <span class="field-value" id="val-power">0.62</span>
+          </label>
+          <input type="range" id="rng-power" min="0.35" max="1.25" step="0.03" value="0.62" />
+        </div>
+
+        <div class="field-row">
+          <label class="field-label" for="rng-anhedral">
+            <span>Underside Anhedral / Concavity (&Gamma;)</span>
+            <span class="field-value" id="val-anhedral">8.0&deg;</span>
+          </label>
+          <input type="range" id="rng-anhedral" min="0.0" max="20.0" step="0.5" value="8.0" />
+        </div>
+
+        <div class="field-row">
+          <label class="field-label" for="rng-canopy">
+            <span>Dorsal Canopy Height Ratio (h / L)</span>
+            <span class="field-value" id="val-canopy">0.045</span>
+          </label>
+          <input type="range" id="rng-canopy" min="0.000" max="0.120" step="0.005" value="0.045" />
+        </div>
+      </section>
+
+      <!-- 3. Conformal Aft Frustum & Conical Rocket Booster -->
+      <section class="control-group">
+        <h2>3. Conformal Aft Booster Frustum</h2>
+
+        <label class="checkbox-row" for="chk-frustum">
+          <input type="checkbox" id="chk-frustum" class="visually-hidden" checked />
+          <span>Enable Conformal Transition Frustum</span>
+        </label>
+
+        <div class="field-row" style="margin-top:0.55rem;">
+          <label class="field-label" for="rng-flength">
+            <span>Frustum Length (L<sub>f</sub>)</span>
+            <span class="field-value" id="val-flength">1.65 m</span>
+          </label>
+          <input type="range" id="rng-flength" min="0.5" max="3.5" step="0.05" value="1.65" />
+        </div>
+
+        <div class="field-row">
+          <label class="field-label" for="rng-bradius">
+            <span>Booster Interface Radius (R<sub>b</sub>)</span>
+            <span class="field-value" id="val-bradius">0.72 m</span>
+          </label>
+          <input type="range" id="rng-bradius" min="0.30" max="1.40" step="0.02" value="0.72" />
+        </div>
+
+        <div class="field-row">
+          <label class="field-label" for="sel-blend">Frustum Blending Law</label>
+          <select id="sel-blend">
+            <option value="cubic" selected>Cubic Hermite (C1 Smooth)</option>
+            <option value="quintic">Quintic Smoothstep (C2 Smooth)</option>
+            <option value="linear">Linear Ruled Generator</option>
+            <option value="conic">Conic Super-Blend</option>
+          </select>
+        </div>
+
+        <label class="checkbox-row" for="chk-rocket">
+          <input type="checkbox" id="chk-rocket" class="visually-hidden" checked />
+          <span>Append Conical Rocket Booster Stage</span>
+        </label>
+
+        <div class="field-row" style="margin-top:0.55rem;">
+          <label class="field-label" for="rng-rcone">
+            <span>Rocket Cone Half-Angle (&theta;<sub>r</sub>)</span>
+            <span class="field-value" id="val-rcone">4.5&deg;</span>
+          </label>
+          <input type="range" id="rng-rcone" min="0.0" max="12.0" step="0.5" value="4.5" />
+        </div>
+      </section>
+
+      <!-- 4. UHF to X-Band Radar & 3D Display Controls -->
+      <section class="control-group">
+        <h2>4. Radar (UHF–X Band) &amp; 3D Overlays</h2>
+
+        <div class="field-row">
+          <label class="field-label" for="rng-rcsel">
+            <span>Radar Look Elevation (&theta;<sub>el</sub>)</span>
+            <span class="field-value" id="val-rcsel">-22&deg; (Ventral)</span>
+          </label>
+          <input type="range" id="rng-rcsel" min="-70" max="70" step="2" value="-22" />
+        </div>
+
+        <label class="checkbox-row" for="chk-multibounce">
+          <input type="checkbox" id="chk-multibounce" class="visually-hidden" checked />
+          <span>Include Concave Underside Double-Bounce</span>
+        </label>
+
+        <label class="checkbox-row" for="chk-shock">
+          <input type="checkbox" id="chk-shock" class="visually-hidden" checked />
+          <span>Show Attached Shock Wave Sheet in 3D</span>
+        </label>
+
+        <label class="checkbox-row" for="chk-rays">
+          <input type="checkbox" id="chk-rays" class="visually-hidden" checked />
+          <span>Show Ventral Concave Bounce Rays in 3D</span>
+        </label>
+
+        <label class="checkbox-row" for="chk-wireframe">
+          <input type="checkbox" id="chk-wireframe" class="visually-hidden" />
+          <span>Show Watertight Triangulation Edges</span>
+        </label>
+      </section>
+    </aside>
+
+    <!-- Main Interactive Workspace -->
+    <main class="workspace-main">
+      <!-- Live Telemetry & Topological Verification Ribbon -->
+      <section class="metrics-ribbon" aria-label="Real-Time Geometry, Topology, Aero &amp; RCS Telemetry">
+        <div class="metric-card">
+          <div class="metric-name">Watertight Topology</div>
+          <div class="metric-val" id="m-topology">0 Open Edges</div>
+          <div class="metric-sub" id="m-faces">8,640 Faces · &#967; = 2</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-name">Enclosed Volume</div>
+          <div class="metric-val" id="m-volume">10.78 m&sup3;</div>
+          <div class="metric-sub" id="m-etav">&eta;<sub>V</sub> = 0.411 · S<sub>plan</sub> = 11.9 m&sup2;</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-name">Inviscid Wave L/D</div>
+          <div class="metric-val" id="m-ld">7.39</div>
+          <div class="metric-sub" id="m-clcd">C<sub>L</sub> = 0.049 · C<sub>D</sub> = 0.0066</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-name">Concave Cavity Pairs</div>
+          <div class="metric-val" id="m-pairs">218 Pairs</div>
+          <div class="metric-sub" id="m-mbgain">Max Double-Bounce +21.4 dB</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-name">Ventral vs Dorsal RCS (X-Band)</div>
+          <div class="metric-val" id="m-rcs-x">+6.5 dBsm</div>
+          <div class="metric-sub" id="m-rcs-diff">Dorsal: +2.1 dBsm | UHF: -4.3 dBsm</div>
+        </div>
+      </section>
+
+      <!-- 4-Panel Interactive Canvas Grid -->
+      <section class="canvas-grid">
+        <div class="canvas-card">
+          <div class="canvas-card-header">
+            <h3>1. Interactive 3D Watertight Mesh, Conformal Frustum &amp; Concave Cavity Rays</h3>
+            <span class="canvas-hint">Drag to Orbit · Scroll to Zoom · Double-Click to Reset</span>
+          </div>
+          <div class="canvas-wrap">
+            <canvas id="canvas-3d"></canvas>
+          </div>
+        </div>
+
+        <div class="canvas-card">
+          <div class="canvas-card-header">
+            <h3>2. Cross-Sectional Morphing (Waverider Base X=L &rarr; Booster Ring &rarr; Rocket)</h3>
+            <span class="canvas-hint">Blue/Orange = Waverider · Cyan/Gold = Frustum Morph · Dashed = Shock</span>
+          </div>
+          <div class="canvas-wrap">
+            <canvas id="canvas-sections"></canvas>
+          </div>
+        </div>
+
+        <div class="canvas-card">
+          <div class="canvas-card-header">
+            <h3>3. Multi-Band Azimuthal RCS (UHF 0.5, L 1.5, S 3.0, C 6.0, X 10.0 GHz)</h3>
+            <span class="canvas-hint" id="hint-az-el">Evaluated at Look Elevation &theta;<sub>el</sub> = -22&deg;</span>
+          </div>
+          <div class="canvas-wrap">
+            <canvas id="canvas-rcs-az"></canvas>
+          </div>
+        </div>
+
+        <div class="canvas-card">
+          <div class="canvas-card-header">
+            <h3>4. Ventral (&theta;<sub>el</sub>&lt;0&deg;) vs. Dorsal (&theta;<sub>el</sub>&gt;0&deg;) Elevation Cut &amp; Double-Bounce Gain</h3>
+            <span class="canvas-hint">Solid = Total (PO + Concave Multi-Bounce) · Dashed = Single-Bounce Only</span>
+          </div>
+          <div class="canvas-wrap">
+            <canvas id="canvas-rcs-el"></canvas>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Modal 1: Live MATLAB Configuration Code Dialog -->
+  <dialog id="dlg-matlab" closedby="any" aria-labelledby="dlg-matlab-title">
+    <div class="dialog-header">
+      <h2 id="dlg-matlab-title">Equivalent MATLAB Code for Current Configuration</h2>
+      <form method="dialog">
+        <button type="submit" autofocus>Close</button>
+      </form>
+    </div>
+    <p style="margin-top:0; font-size:0.88rem; color:var(--text-secondary);">
+      Copy and run this snippet in MATLAB after calling <code>setup_waverider()</code> to generate the exact watertight mesh, booster frustum, and UHF-to-X-band RCS analysis:
+    </p>
+    <pre class="code-block" id="matlab-code-output"></pre>
+    <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:0.85rem;">
+      <button type="button" id="btn-copy-matlab" class="btn-primary">Copy MATLAB Snippet</button>
+    </div>
+  </dialog>
+
+  <!-- Modal 2: High-Resolution MATLAB Verification Figure Gallery -->
+  <dialog id="dlg-gallery" closedby="any" aria-labelledby="dlg-gallery-title">
+    <div class="dialog-header">
+      <h2 id="dlg-gallery-title">MATLAB R2026b Verification Figure Gallery</h2>
+      <form method="dialog">
+        <button type="submit" autofocus>Close</button>
+      </form>
+    </div>
+    <div class="gallery-grid">
+      <div class="gallery-item">
+        <h3>1. Conformal Aft Transition Frustum &amp; Conical Rocket Booster Mount</h3>
+        <img src="assets/waverider_booster_integration.png" alt="Conformal Aft Transition Frustum and Conical Rocket Booster Mount" loading="lazy" />
+      </div>
+      <div class="gallery-item">
+        <h3>2. Multi-Band RCS &amp; Concave Underside Scattering (UHF to X-Band)</h3>
+        <img src="assets/waverider_rcs_uhf_to_xband_caret.png" alt="UHF to X-band RCS and Concave Underside Scattering Analysis" loading="lazy" />
+      </div>
+      <div class="gallery-item">
+        <h3>3. 2D Azimuth-Elevation RCS Sphere &amp; Concave Double-Bounce Gain Map</h3>
+        <img src="assets/waverider_rcs_family_concavity.png" alt="2D Azimuth Elevation RCS Sphere and Concave Double-Bounce Gain" loading="lazy" />
+      </div>
+      <div class="gallery-item">
+        <h3>4. 3-View Geometric Lofting Blueprint &amp; Longitudinal Area Progression</h3>
+        <img src="assets/geometry_blueprint_osculating_cone.png" alt="Geometric Lofting Blueprint and Sectional Lines" loading="lazy" />
+      </div>
+      <div class="gallery-item">
+        <h3>5. Taylor-Maccoll Shock-Layer Profile, AoA Polar &amp; Outward Normals</h3>
+        <img src="assets/key_attributes_osculating_cone.png" alt="Taylor-Maccoll Shock Layer and Aerodynamic Polar" loading="lazy" />
+      </div>
+      <div class="gallery-item">
+        <h3>6. Cross-Family Comparison (Conical, Osculating Cone, Caret, CST)</h3>
+        <img src="assets/waverider_family_comparison.png" alt="Comparative Geometry and Key Attributes Across Waverider Families" loading="lazy" />
+      </div>
+    </div>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+# macOS
+.DS_Store
+
+# MATLAB temporary & autosave files
+*.asv
+*.m~
+*.mex*
+slprj/
+codegen/
