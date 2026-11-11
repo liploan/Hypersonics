@@ -773,6 +773,88 @@
         ctx.stroke();
       }
     }
+
+    // 3D Reference Coordinate Bounding Frame & Labeled Tick Marks in Meters
+    const xMaxTotal = cfg.length + (cfg.frustum ? cfg.flength + (cfg.rocket ? 1.85 : 0) : 0);
+    const yAxisRef = -cfg.span * 1.15;
+    const zAxisRef = -Math.max(cfg.length * Math.tan((cfg.beta * Math.PI) / 180.0), cfg.span * 0.75) - 0.15;
+
+    ctx.strokeStyle = "rgba(148, 163, 184, 0.45)";
+    ctx.fillStyle = "#cbd5e1";
+    ctx.font = "11px ui-monospace, SFMono-Regular, Menlo, monospace";
+    ctx.lineWidth = 1.1;
+
+    // Axial X-axis ruler [0 .. xMaxTotal]
+    const pX0 = projectPt([0, yAxisRef, zAxisRef]);
+    const pX1 = projectPt([xMaxTotal, yAxisRef, zAxisRef]);
+    ctx.beginPath(); ctx.moveTo(pX0[0], pX0[1]); ctx.lineTo(pX1[0], pX1[1]); ctx.stroke();
+    const xTickStep = xMaxTotal > 6 ? 2.0 : 1.0;
+    for (let xv = 0; xv <= xMaxTotal + 0.01; xv += xTickStep) {
+      const pt = projectPt([xv, yAxisRef, zAxisRef]);
+      ctx.fillRect(pt[0] - 1.5, pt[1] - 1.5, 3, 3);
+      ctx.fillText(`${xv.toFixed(0)}m`, pt[0] - 8, pt[1] + 14);
+    }
+    const pXMid = projectPt([0.5 * xMaxTotal, yAxisRef, zAxisRef]);
+    ctx.font = "bold 11.5px -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.fillStyle = "#38bdf8";
+    ctx.fillText("Axial Length X [m]", pXMid[0] - 42, pXMid[1] + 28);
+
+    // Spanwise Y-axis ruler at aft plane [-b/2 .. +b/2]
+    ctx.font = "11px ui-monospace, SFMono-Regular, Menlo, monospace";
+    ctx.fillStyle = "#cbd5e1";
+    const pY0 = projectPt([xMaxTotal, -cfg.span, zAxisRef]);
+    const pY1 = projectPt([xMaxTotal, cfg.span, zAxisRef]);
+    ctx.beginPath(); ctx.moveTo(pY0[0], pY0[1]); ctx.lineTo(pY1[0], pY1[1]); ctx.stroke();
+    [-cfg.span, 0, cfg.span].forEach((yv) => {
+      const pt = projectPt([xMaxTotal, yv, zAxisRef]);
+      ctx.fillRect(pt[0] - 1.5, pt[1] - 1.5, 3, 3);
+      ctx.fillText(`${yv >= 0 ? "+" : ""}${yv.toFixed(1)}m`, pt[0] + 5, pt[1] + 4);
+    });
+    ctx.font = "bold 11.5px -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.fillStyle = "#4ade80";
+    ctx.fillText("Span Y [m]", pY1[0] + 6, pY1[1] - 8);
+
+    // 3D Orientation Triad in Bottom-Left Corner
+    const ox = 54, oy = H - 48, triLen = 34;
+    const axesTriad = [
+      { dir: [1, 0, 0], label: "+X (Aft)", color: "#f87171" },
+      { dir: [0, 1, 0], label: "+Y (Span)", color: "#4ade80" },
+      { dir: [0, 0, 1], label: "+Z (Up)", color: "#38bdf8" }
+    ];
+    axesTriad.forEach((ax) => {
+      const rx = ax.dir[0] * cy - ax.dir[1] * sy;
+      const ry = ax.dir[0] * sy + ax.dir[1] * cy;
+      const rz = ax.dir[2];
+      const dx = rx * triLen;
+      const dy = (ry * sp - rz * cp) * triLen;
+      ctx.strokeStyle = ax.color;
+      ctx.fillStyle = ax.color;
+      ctx.lineWidth = 2.0;
+      ctx.beginPath();
+      ctx.moveTo(ox, oy);
+      ctx.lineTo(ox + dx, oy + dy);
+      ctx.stroke();
+      ctx.font = "bold 10.5px ui-monospace, monospace";
+      ctx.fillText(ax.label, ox + dx * 1.18 - 14, oy + dy * 1.18 + 3);
+    });
+
+    // Top-Left Surface Patch Legend
+    const legItems = [
+      { label: "Upper Surface", color: "rgb(52, 148, 226)" },
+      { label: "Lower Compression", color: "rgb(232, 112, 54)" },
+      ...(cfg.frustum ? [{ label: "Conformal Frustum", color: "rgb(148, 163, 184)" }] : []),
+      ...(cfg.frustum && cfg.rocket ? [{ label: "Rocket Booster", color: "rgb(215, 222, 232)" }] : []),
+      { label: "Watertight Base", color: "rgb(74, 196, 115)" }
+    ];
+    let ly = 16;
+    ctx.font = "11px -apple-system, BlinkMacSystemFont, sans-serif";
+    legItems.forEach((item) => {
+      ctx.fillStyle = item.color;
+      ctx.fillRect(14, ly - 8, 12, 10);
+      ctx.fillStyle = "#e2e8f0";
+      ctx.fillText(item.label, 32, ly);
+      ly += 17;
+    });
   }
 
   // 7. Canvas 2: Aft Cross-Section & Conformal Frustum Morphing View
@@ -789,27 +871,65 @@
     ctx.fillStyle = "#090e1a";
     ctx.fillRect(0, 0, W, H);
 
-    const bMax = Math.max(model.cfg.span * 1.15, model.cfg.bradius * 1.3);
-    const scale = Math.min(W / (2.2 * bMax), H / (1.6 * bMax));
-    const cx = W * 0.5, cy = H * 0.36;
+    const padL = 64, padR = 24, padT = 34, padB = 48;
+    const plotW = Math.max(W - padL - padR, 100);
+    const plotH = Math.max(H - padT - padB, 100);
+
+    // Compute physical bounds in Y and Z
+    const rWave = model.NxWave - 1;
+    let zMinData = -1.2, zMaxData = 0.4;
+    for (let r = 0; r < model.NxTotal; r++) {
+      for (let k = 0; k < model.Ny; k++) {
+        zMinData = Math.min(zMinData, model.Z_low[r][k]);
+        zMaxData = Math.max(zMaxData, model.Z_up[r][k]);
+      }
+    }
+    for (let k = 0; k < model.Ny; k++) {
+      zMinData = Math.min(zMinData, model.Z_shk[rWave][k]);
+    }
+
+    const yMaxAbs = Math.max(model.cfg.span * 1.12, model.cfg.bradius * 1.25, 1.0);
+    const zSpan = Math.max(zMaxData - zMinData, 0.8);
+    const zMid = 0.5 * (zMaxData + zMinData);
+
+    // Maintain 1:1 isotropic geometric aspect ratio inside plot box
+    const scale = Math.min(plotW / (2.0 * yMaxAbs), plotH / (zSpan * 1.22));
+    const cx = padL + plotW * 0.5;
+    const cy = padT + plotH * 0.5 + zMid * scale;
+
+    const yLeftVal = - (plotW * 0.5) / scale;
+    const yRightVal = (plotW * 0.5) / scale;
+    const zTopVal = (cy - padT) / scale;
+    const zBotVal = (cy - (padT + plotH)) / scale;
 
     function toXY(y, z) {
       return [cx + y * scale, cy - z * scale];
     }
 
-    // Draw grid lines
-    ctx.strokeStyle = "rgba(148, 163, 184, 0.14)";
+    // Clip grid and curves to plot box
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(padL, padT, plotW, plotH);
+    ctx.clip();
+
+    const yStep = yMaxAbs > 2.2 ? 1.0 : 0.5;
+    const zStep = (zTopVal - zBotVal) > 2.0 ? 0.5 : 0.25;
+
+    ctx.strokeStyle = "rgba(148, 163, 184, 0.16)";
     ctx.lineWidth = 1;
-    for (let y = -3.0; y <= 3.0; y += 0.5) {
+    for (let y = Math.ceil(yLeftVal / yStep) * yStep; y <= yRightVal; y += yStep) {
       const [px] = toXY(y, 0);
-      ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, H); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(px, padT); ctx.lineTo(px, padT + plotH); ctx.stroke();
     }
-    for (let z = -2.0; z <= 1.0; z += 0.25) {
+    for (let z = Math.ceil(zBotVal / zStep) * zStep; z <= zTopVal; z += zStep) {
       const [, py] = toXY(0, z);
-      ctx.beginPath(); ctx.moveTo(0, py); ctx.lineTo(W, py); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(padL, py); ctx.lineTo(padL + plotW, py); ctx.stroke();
     }
 
-    const rWave = model.NxWave - 1;
+    // Highlight symmetry line Y = 0
+    ctx.strokeStyle = "rgba(148, 163, 184, 0.35)";
+    ctx.beginPath(); ctx.moveTo(cx, padT); ctx.lineTo(cx, padT + plotH); ctx.stroke();
+
     // Fill Waverider Base Cross-Section at X = L
     ctx.beginPath();
     for (let k = 0; k < model.Ny; k++) {
@@ -861,7 +981,7 @@
       const rMid = Math.round(0.5 * (rWave + model.NxFrustEnd - 1));
       const rEnd = model.NxFrustEnd - 1;
       const morphRows = [
-        { r: rMid, color: "rgba(192, 132, 252, 0.75)", width: 1.6 },
+        { r: rMid, color: "rgba(192, 132, 252, 0.85)", width: 1.7 },
         { r: rEnd, color: "#4ade80", width: 2.4 }
       ];
       for (const m of morphRows) {
@@ -880,10 +1000,69 @@
         ctx.stroke();
       }
     }
+    ctx.restore();
+
+    // Plot Border Box
+    ctx.strokeStyle = "#475569";
+    ctx.lineWidth = 1.2;
+    ctx.strokeRect(padL, padT, plotW, plotH);
+
+    // Numeric Tick Labels on X (Span Y) and Y (Vertical Z) Axes
+    ctx.fillStyle = "#cbd5e1";
+    ctx.font = "11px ui-monospace, SFMono-Regular, Menlo, monospace";
+    ctx.textAlign = "center";
+    for (let y = Math.ceil(yLeftVal / yStep) * yStep; y <= yRightVal; y += yStep) {
+      const [px] = toXY(y, 0);
+      if (px >= padL + 10 && px <= padL + plotW - 10) {
+        ctx.fillText(`${y.toFixed(1)}`, px, padT + plotH + 16);
+      }
+    }
+
+    ctx.textAlign = "right";
+    for (let z = Math.ceil(zBotVal / zStep) * zStep; z <= zTopVal; z += zStep) {
+      const [, py] = toXY(0, z);
+      if (py >= padT + 8 && py <= padT + plotH - 6) {
+        ctx.fillText(`${z.toFixed(2)}`, padL - 8, py + 4);
+      }
+    }
+
+    // Clear Axis Titles
+    ctx.fillStyle = "#f0f4fc";
+    ctx.font = "bold 12px -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("Spanwise Coordinate Y [m]  (Port -Y  \u2194  Starboard +Y)", padL + plotW * 0.5, H - 10);
+
+    ctx.save();
+    ctx.translate(16, padT + plotH * 0.5);
+    ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = "center";
+    ctx.fillText("Vertical Coordinate Z [m]", 0, 0);
+    ctx.restore();
+
+    // Top Legend Bar
+    const secLegend = [
+      { label: "Upper TE (X=L)", color: "#38bdf8" },
+      { label: "Lower TE (X=L)", color: "#fb923c" },
+      { label: "Shock Wave", color: "#f43f5e" },
+      ...(model.NxFrustEnd > model.NxWave ? [
+        { label: "Frustum Mid (\u03C4=0.5)", color: "#c084fc" },
+        { label: "Booster Ring (\u03C4=1.0)", color: "#4ade80" }
+      ] : [])
+    ];
+    let lx = padL + 4;
+    ctx.textAlign = "left";
+    ctx.font = "11px -apple-system, BlinkMacSystemFont, sans-serif";
+    secLegend.forEach((s) => {
+      ctx.fillStyle = s.color;
+      ctx.fillRect(lx, 12, 14, 3);
+      ctx.fillStyle = "#e2e8f0";
+      ctx.fillText(s.label, lx + 18, 17);
+      lx += ctx.measureText(s.label).width + 30;
+    });
   }
 
-  // 8. Canvas 3 & 4: Multi-Band UHF-to-X-Band RCS Charts
-  function drawLineChart(canvas, xVec, seriesList, xLabel, yLabel, yMin, yMax) {
+  // 8. Canvas 3 & 4: Multi-Band UHF-to-X-Band RCS Charts with Labeled Axes
+  function drawLineChart(canvas, xVec, seriesList, xLabel, yLabel, yMin, yMax, vLines = []) {
     const rect = canvas.parentElement.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
     canvas.width = rect.width * dpr;
@@ -895,8 +1074,9 @@
     ctx.fillStyle = "#090e1a";
     ctx.fillRect(0, 0, W, H);
 
-    const padL = 48, padR = 18, padT = 28, padB = 36;
-    const plotW = W - padL - padR, plotH = H - padT - padB;
+    const padL = 64, padR = 22, padT = 34, padB = 48;
+    const plotW = Math.max(W - padL - padR, 100);
+    const plotH = Math.max(H - padT - padB, 100);
     const xMin = xVec[0], xMax = xVec[xVec.length - 1];
 
     function toPx(x, y) {
@@ -906,24 +1086,52 @@
       return [px, py];
     }
 
-    // Grid & Axes
+    // Grid & Tick Numbers
     ctx.strokeStyle = "rgba(148, 163, 184, 0.16)";
-    ctx.fillStyle = "#94a3b8";
-    ctx.font = "11px ui-monospace, monospace";
+    ctx.lineWidth = 1;
+    ctx.fillStyle = "#cbd5e1";
+    ctx.font = "11px ui-monospace, SFMono-Regular, Menlo, monospace";
+
+    ctx.textAlign = "right";
     for (let y = yMin; y <= yMax; y += 10) {
       const [, py] = toPx(xMin, y);
-      ctx.beginPath(); ctx.moveTo(padL, py); ctx.lineTo(W - padR, py); ctx.stroke();
-      ctx.fillText(`${y}`, 10, py + 4);
+      ctx.beginPath(); ctx.moveTo(padL, py); ctx.lineTo(padL + plotW, py); ctx.stroke();
+      ctx.fillText(`${y >= 0 ? "+" : ""}${y}`, padL - 8, py + 4);
     }
 
-    const xStep = (xMax - xMin) <= 180 ? 30 : 30;
+    ctx.textAlign = "center";
+    const xStep = 30;
     for (let x = xMin; x <= xMax; x += xStep) {
       const [px] = toPx(x, yMin);
-      ctx.beginPath(); ctx.moveTo(px, padT); ctx.lineTo(px, H - padB); ctx.stroke();
-      ctx.fillText(`${x}°`, px - 10, H - 14);
+      ctx.beginPath(); ctx.moveTo(px, padT); ctx.lineTo(px, padT + plotH); ctx.stroke();
+      ctx.fillText(`${x}°`, px, padT + plotH + 16);
     }
 
-    // Plot Series
+    // Optional Vertical Reference Lines (e.g., Horizon 0 deg or LE Specular)
+    vLines.forEach((vl) => {
+      const [px] = toPx(vl.x, yMin);
+      ctx.save();
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = vl.color || "rgba(248, 250, 252, 0.55)";
+      ctx.lineWidth = 1.3;
+      ctx.beginPath();
+      ctx.moveTo(px, padT);
+      ctx.lineTo(px, padT + plotH);
+      ctx.stroke();
+      if (vl.label) {
+        ctx.fillStyle = "#e2e8f0";
+        ctx.font = "10.5px -apple-system, BlinkMacSystemFont, sans-serif";
+        ctx.textAlign = "left";
+        ctx.fillText(vl.label, px + 5, padT + 14);
+      }
+      ctx.restore();
+    });
+
+    // Plot Series Clipped to Plot Box
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(padL, padT, plotW, plotH);
+    ctx.clip();
     for (const s of seriesList) {
       ctx.save();
       if (s.dashed) ctx.setLineDash([5, 4]);
@@ -938,16 +1146,36 @@
       ctx.stroke();
       ctx.restore();
     }
+    ctx.restore();
+
+    // Plot Frame Border
+    ctx.strokeStyle = "#475569";
+    ctx.lineWidth = 1.2;
+    ctx.strokeRect(padL, padT, plotW, plotH);
+
+    // Centered X-Axis Title & Rotated Y-Axis Title
+    ctx.fillStyle = "#f0f4fc";
+    ctx.font = "bold 12px -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(xLabel, padL + plotW * 0.5, H - 10);
+
+    ctx.save();
+    ctx.translate(16, padT + plotH * 0.5);
+    ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = "center";
+    ctx.fillText(yLabel, 0, 0);
+    ctx.restore();
 
     // Legend bar at top
-    let lx = padL + 6;
-    ctx.font = "11px -apple-system, sans-serif";
+    let lx = padL + 4;
+    ctx.textAlign = "left";
+    ctx.font = "11px -apple-system, BlinkMacSystemFont, sans-serif";
     for (const s of seriesList) {
       ctx.fillStyle = s.color;
-      ctx.fillRect(lx, 10, 14, 3);
+      ctx.fillRect(lx, 12, 14, 3);
       ctx.fillStyle = "#e2e8f0";
-      ctx.fillText(s.label, lx + 18, 15);
-      lx += ctx.measureText(s.label).width + 32;
+      ctx.fillText(s.label, lx + 18, 17);
+      lx += ctx.measureText(s.label).width + 26;
     }
   }
 
@@ -983,7 +1211,13 @@
 
     drawLineChart(
       document.getElementById("canvas-rcs-az"),
-      azVec, azSeries, "Azimuth [deg]", "RCS [dBsm]", -35, 25
+      azVec,
+      azSeries,
+      "Azimuth Angle \u03C8 [deg]  (0\u00B0 = Nose-On, 90\u00B0 = Broadside, 180\u00B0 = Tail-On)",
+      "Monostatic RCS \u03C3 [dBsm]",
+      -35,
+      25,
+      [{ x: 68, label: "LE Specular (~68\u00B0)" }]
     );
 
     // 2. Elevation Cut (-90 deg Ventral to +90 deg Dorsal) at Oblique Azimuth = 45 deg
@@ -1023,7 +1257,13 @@
 
     drawLineChart(
       document.getElementById("canvas-rcs-el"),
-      elVec, elSeries, "Elevation [deg]", "RCS [dBsm]", -35, 35
+      elVec,
+      elSeries,
+      "Elevation Angle \u03B8_el [deg]  (< 0\u00B0 Ventral Concave Underside  |  > 0\u00B0 Dorsal Canopy)",
+      "Monostatic RCS \u03C3 [dBsm]",
+      -35,
+      35,
+      [{ x: 0, label: "Horizon (\u03B8_el = 0\u00B0)" }]
     );
 
     const vX_dB = 10 * Math.log10(ventralXSum / nSec);
