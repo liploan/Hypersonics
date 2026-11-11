@@ -1,6 +1,14 @@
 # Parametric Watertight Hypersonic Waveriding Glide Body Generator (MATLAB)
 
-A modular MATLAB codebase (`+waverider`) for generating, verifying, analyzing, visualizing, and exporting **2-manifold watertight 3D hypersonic waverider glide bodies**.
+[![Live Interactive Web Studio](https://img.shields.io/badge/GitHub%20Pages-Live%20Interactive%20Waverider%20%26%20RCS%20Studio-0284c7?style=for-the-badge&logo=github)](https://liploan.github.io/Hypersonics/)
+
+A modular MATLAB codebase (`+waverider`) and interactive client-side web studio (`docs/`) for generating, verifying, analyzing, visualizing, and exporting **2-manifold watertight 3D hypersonic waverider glide bodies**, **conformal aft rocket booster transition frustums**, and **UHF-to-X-band Radar Cross Section (RCS) & concave cavity multi-bounce signatures**.
+
+* **Live Interactive Web Studio (GitHub Pages)**: [https://liploan.github.io/Hypersonics/](https://liploan.github.io/Hypersonics/)
+* **GitHub Repository**: [https://github.com/liploan/Hypersonics](https://github.com/liploan/Hypersonics)
+
+![Booster Integration Overview](docs/assets/waverider_booster_integration.png)
+![UHF to X-Band RCS & Concave Underside Analysis](docs/assets/waverider_rcs_uhf_to_xband_caret.png)
 
 ---
 
