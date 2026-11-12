@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="dark light" />
   <title>Hypersonic Parametric Watertight Waverider &amp; RCS Studio</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -10,13 +11,20 @@
   <header class="app-header">
     <div class="brand-title">
       <h1>Hypersonic Watertight Waverider &amp; UHF–X Band RCS Studio</h1>
-      <span id="watertight-badge" class="badge-watertight">PASS · 2-Manifold Watertight (&#967; = 2)</span>
+      <span id="watertight-badge" class="badge-watertight" role="status">&#10003; PASS &middot; 2-Manifold Watertight (&#967; = 2)</span>
     </div>
-    <div class="header-actions">
-      <button type="button" id="btn-export-stl" class="btn-primary">Download Watertight .STL</button>
-      <button type="button" id="btn-export-obj">Download Grouped .OBJ</button>
-      <button type="button" id="btn-open-matlab">MATLAB Code</button>
-      <button type="button" id="btn-open-gallery">MATLAB Figure Gallery</button>
+    <div class="header-right">
+      <nav class="header-nav" aria-label="Primary">
+        <a class="nav-link" href="index.html" aria-current="page">Interactive Studio</a>
+        <a class="nav-link" href="references.html">Verified References (24)</a>
+        <a class="nav-link" href="https://github.com/liploan/Hypersonics/tree/main/documentation" target="_blank" rel="noopener noreferrer">Documentation</a>
+      </nav>
+      <div class="header-actions">
+        <button type="button" id="btn-export-stl" class="btn-primary">Download Watertight .STL</button>
+        <button type="button" id="btn-export-obj">Download Grouped .OBJ</button>
+        <button type="button" id="btn-open-matlab">MATLAB Code</button>
+        <button type="button" id="btn-open-gallery">MATLAB Figure Gallery</button>
+      </div>
     </div>
   </header>
 
@@ -189,7 +197,7 @@
           <select id="sel-window">
             <option value="hann" selected>Hann Window (Low Sidelobe, 1.44&times;&Delta;R)</option>
             <option value="hamming">Hamming Window (Balanced, 1.30&times;&Delta;R)</option>
-            <option value="rect">Rectangular LFM (Max Resolution, 1.00&times;&Delta;R)</option>
+            <option value="rect">Rectangular LFM (Max Resolution, 0.89&times;&Delta;R)</option>
           </select>
         </div>
 
@@ -230,17 +238,17 @@
         <div class="metric-card">
           <div class="metric-name">Watertight Topology</div>
           <div class="metric-val" id="m-topology">0 Open Edges</div>
-          <div class="metric-sub" id="m-faces">8,640 Faces · &#967; = 2</div>
+          <div class="metric-sub" id="m-faces">3,384 Faces &middot; &#967; = 2</div>
         </div>
         <div class="metric-card">
           <div class="metric-name">Enclosed Volume</div>
           <div class="metric-val" id="m-volume">10.78 m&sup3;</div>
-          <div class="metric-sub" id="m-etav">&eta;<sub>V</sub> = 0.411 · S<sub>plan</sub> = 11.9 m&sup2;</div>
+          <div class="metric-sub" id="m-etav">&eta;<sub>V</sub> = 0.411 &middot; S<sub>plan</sub> = 11.9 m&sup2;</div>
         </div>
         <div class="metric-card">
-          <div class="metric-name">Inviscid Wave L/D</div>
+          <div class="metric-name">Inviscid / Viscous L/D</div>
           <div class="metric-val" id="m-ld">7.39</div>
-          <div class="metric-sub" id="m-clcd">C<sub>L</sub> = 0.049 · C<sub>D</sub> = 0.0066</div>
+          <div class="metric-sub" id="m-clcd">C<sub>L</sub> = 0.049 &middot; C<sub>D,w</sub> = 0.0066</div>
         </div>
         <div class="metric-card">
           <div class="metric-name">Concave Cavity Pairs</div>
@@ -264,20 +272,20 @@
         <div class="canvas-card">
           <div class="canvas-card-header">
             <h3>1. Interactive 3D Watertight Mesh, Conformal Frustum &amp; Concave Cavity Rays</h3>
-            <span class="canvas-hint">Drag to Orbit · Scroll to Zoom · Double-Click to Reset</span>
+            <span class="canvas-hint">Drag to Orbit &middot; Scroll to Zoom &middot; Double-Click to Reset</span>
           </div>
           <div class="canvas-wrap">
-            <canvas id="canvas-3d"></canvas>
+            <canvas id="canvas-3d" role="img" aria-label="Interactive 3D viewport showing watertight hypersonic waverider mesh, attached shock sheet, conformal transition frustum, and ventral double-bounce ray paths"></canvas>
           </div>
         </div>
 
         <div class="canvas-card">
           <div class="canvas-card-header">
             <h3>2. Cross-Sectional Morphing (Waverider Base X=L &rarr; Booster Ring &rarr; Rocket)</h3>
-            <span class="canvas-hint">Blue/Orange = Waverider · Cyan/Gold = Frustum Morph · Dashed = Shock</span>
+            <span class="canvas-hint">Blue/Orange = Waverider &middot; Purple/Green = Frustum Morph &middot; Dashed = Shock</span>
           </div>
           <div class="canvas-wrap">
-            <canvas id="canvas-sections"></canvas>
+            <canvas id="canvas-sections" role="img" aria-label="Cross-sectional contour plot showing waverider trailing edge, attached shock trace, and conformal transition morphing to circular booster interface"></canvas>
           </div>
         </div>
 
@@ -287,17 +295,17 @@
             <span class="canvas-hint" id="hint-az-el">Evaluated at Look Elevation &theta;<sub>el</sub> = -22&deg;</span>
           </div>
           <div class="canvas-wrap">
-            <canvas id="canvas-rcs-az"></canvas>
+            <canvas id="canvas-rcs-az" role="img" aria-label="Monostatic radar cross section in dBsm versus azimuth angle from 0 to 180 degrees across UHF, L, S, C, and X frequency bands"></canvas>
           </div>
         </div>
 
         <div class="canvas-card">
           <div class="canvas-card-header">
             <h3>4. Ventral (&theta;<sub>el</sub>&lt;0&deg;) vs. Dorsal (&theta;<sub>el</sub>&gt;0&deg;) Elevation Cut &amp; Double-Bounce Gain</h3>
-            <span class="canvas-hint">Solid = Total (PO + Concave Multi-Bounce) · Dashed = Single-Bounce Only</span>
+            <span class="canvas-hint">Solid = Total (Gordon PO + GO-PO 2-Bounce) &middot; Dashed = Single-Bounce Only</span>
           </div>
           <div class="canvas-wrap">
-            <canvas id="canvas-rcs-el"></canvas>
+            <canvas id="canvas-rcs-el" role="img" aria-label="Monostatic radar cross section versus elevation angle from negative 90 degrees ventral to positive 90 degrees dorsal comparing total and single-bounce signatures"></canvas>
           </div>
         </div>
 
@@ -307,7 +315,7 @@
             <span class="canvas-hint" id="hint-rti-bw">Click/Drag on Heatmap to Select Azimuth Cut &psi;<sub>cut</sub></span>
           </div>
           <div class="canvas-wrap">
-            <canvas id="canvas-rti"></canvas>
+            <canvas id="canvas-rti" role="img" aria-label="Two-dimensional range-angle-intensity radar sinogram showing down-range scattering intensity versus azimuth angle with nose, base, and booster range tracks"></canvas>
           </div>
         </div>
 
@@ -317,12 +325,20 @@
             <span class="canvas-hint" id="hint-hrrp-cut">Total vs. Single-Bounce vs. Delayed Concave 2-Bounce (+0.5 d<sub>PQ</sub>)</span>
           </div>
           <div class="canvas-wrap">
-            <canvas id="canvas-hrrp"></canvas>
+            <canvas id="canvas-hrrp" role="img" aria-label="One-dimensional high-resolution range profile cut showing down-range scattering peaks for single-bounce physical optics and delayed concave double-bounce returns"></canvas>
           </div>
         </div>
       </section>
     </main>
   </div>
+
+  <footer class="app-footer">
+    <span>Validated against NACA Report 1135, Nonweiler caret theory, Gordon (1975) contour PO, Ling et al. (1989) GO-PO, and Harris (1978) spectral windows (23/23 MATLAB + 26/26 Node.js checks passing).</span>
+    <span>
+      <a href="references.html">24 Web-Verified References</a> &middot;
+      <a href="https://github.com/liploan/Hypersonics" target="_blank" rel="noopener noreferrer">GitHub Repository</a>
+    </span>
+  </footer>
 
   <!-- Modal 1: Live MATLAB Configuration Code Dialog -->
   <dialog id="dlg-matlab" closedby="any" aria-labelledby="dlg-matlab-title">
@@ -337,7 +353,10 @@
     </p>
     <pre class="code-block" id="matlab-code-output"></pre>
     <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:0.85rem;">
-      <button type="button" id="btn-copy-matlab" class="btn-primary">Copy MATLAB Snippet</button>
+      <span class="copy">
+        <button type="button" id="btn-copy-matlab" class="copy-button btn-primary" command="--copy" commandfor="matlab-code-output">Copy MATLAB Snippet</button>
+        <span class="tip" role="status"></span>
+      </span>
     </div>
   </dialog>
 
@@ -381,6 +400,7 @@
     </div>
   </dialog>
 
+  <script src="physics.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

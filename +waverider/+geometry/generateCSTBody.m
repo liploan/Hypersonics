@@ -56,7 +56,7 @@ function surfData = generateCSTBody(cfg)
     cstLongProfile = C_long .* S_bernstein; % [Nx x 1], 0 at s=0
 
     % Spanwise CST class function: 1 at centerline, 0 at wingtips
-    C_span = (1.0 - eta.^2).^1.5; % [1 x Ny]
+    C_span = (1.0 - abs(eta).^cfg.CanopySpanPower).^1.5; % [1 x Ny]
     chordScale = max(1.0 - xLE ./ L, 0.0).^0.65;
 
     % ---------------------------------------------------------------------
@@ -105,14 +105,22 @@ function surfData = generateCSTBody(cfg)
     Y_shock = Y_low;
     Z_shock = repmat(zLE, Nx, 1) - dxStream .* tanBeta;
 
-    % Modified Newtonian pressure coefficient on lower surface
+    % Modified Newtonian pressure coefficient on lower surface (windward/leeward consistent)
     CpMax = (2.0 / (cfg.Gamma * cfg.Mach^2)) * ...
         (((cfg.Gamma + 1.0)^2 * cfg.Mach^2 / (4.0 * cfg.Gamma * cfg.Mach^2 - 2.0 * (cfg.Gamma - 1.0)))^(cfg.Gamma / (cfg.Gamma - 1.0)) * ...
          ((1.0 - cfg.Gamma + 2.0 * cfg.Gamma * cfg.Mach^2) / (cfg.Gamma + 1.0)) - 1.0);
     [Nx_l, Ny_l, Nz_l] = surfnorm(X_low, Y_low, Z_low);
+    flipMask = (Nz_l > 0); % Ensure outward lower-surface normal points downward (-Z)
+    Nx_l(flipMask) = -Nx_l(flipMask);
+    Ny_l(flipMask) = -Ny_l(flipMask);
+    Nz_l(flipMask) = -Nz_l(flipMask);
     nMag = sqrt(Nx_l.^2 + Ny_l.^2 + Nz_l.^2) + 1e-12;
-    sinThetaLocal = max(abs(Nx_l) ./ nMag, sin(shock.deltaRad));
-    Cp_low = CpMax .* (sinThetaLocal.^2);
+    sinImpact = max(-Nx_l ./ nMag, 0.0);
+    sinLee = max(Nx_l ./ nMag, 0.0);
+    g = cfg.Gamma;
+    M = cfg.Mach;
+    CpPM = (2.0 / (g * M^2)) .* (max(1.0 - 0.5 * (g - 1.0) * M .* sinLee, 0.0).^(2.0 * g / (g - 1.0)) - 1.0);
+    Cp_low = CpMax .* (sinImpact.^2) + CpPM .* (sinImpact == 0);
 
     surfData = struct();
     surfData.Method = cfg.Method;

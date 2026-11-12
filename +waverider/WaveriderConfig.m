@@ -47,7 +47,7 @@ classdef WaveriderConfig
         % CST Boost-Glide Parameters (used when Method == 'cst')
         CSTNoseExponent (1,1) double {mustBeInRange(CSTNoseExponent, 0.2, 1.5)} = 0.55       % Class function N1 longitudinal
         CSTAftExponent (1,1) double {mustBeInRange(CSTAftExponent, 0.0, 1.5)} = 0.15         % Class function N2 longitudinal
-        CSTUpperWeights (1,:) double = [0.12, 0.16, 0.14, 0.11]                              % Bernstein weights for upper ridge
+        CSTUpperWeights (1,:) double {mustBeNonempty, mustBeFinite, mustBeNonnegative} = [0.12, 0.16, 0.14, 0.11] % Bernstein weights for upper ridge
         CSTLowerArchRatio (1,1) double {mustBeInRange(CSTLowerArchRatio, -0.15, 0.25)} = 0.025 % Concave compression arch on lower surface
 
         % Aft Conformal Frustum Transition & Conical Rocket Booster Mount
@@ -75,6 +75,10 @@ classdef WaveriderConfig
                 obj = waverider.WaveriderConfig.fromPreset(char(varargin{1}));
                 return;
             end
+            if mod(numel(varargin), 2) ~= 0
+                error('WaveriderConfig:OddNameValueArgs', ...
+                    'Expected an even number of Name-Value arguments (got %d).', numel(varargin));
+            end
             for k = 1:2:numel(varargin)
                 propName = varargin{k};
                 if isprop(obj, propName)
@@ -83,6 +87,16 @@ classdef WaveriderConfig
                     error('WaveriderConfig:UnknownProperty', ...
                         'Unknown configuration property "%s".', propName);
                 end
+            end
+        end
+
+        function validate(obj)
+            %VALIDATE Check coupled physical constraints across configuration properties.
+            muDeg = asind(1.0 / obj.Mach);
+            if obj.ShockAngleDeg <= muDeg + 0.15
+                error('WaveriderConfig:ShockBelowMachAngle', ...
+                    'ShockAngleDeg (%.2f deg) must exceed the freestream Mach wave angle asin(1/M) = %.2f deg at Mach %.2f.', ...
+                    obj.ShockAngleDeg, muDeg, obj.Mach);
             end
         end
     end

@@ -26,6 +26,7 @@ function cp = buildConcavePairList(body)
     rCell = zeros(maxCells, 3);
     nCell = zeros(maxCells, 3);
     aCell = zeros(maxCells, 1);
+    vCell = zeros(maxCells, 4, 3);   % planar quad polygon (CCW about outward normal)
     nCells = 0;
 
     for r = 1:(Nr - 1)
@@ -43,9 +44,16 @@ function cp = buildConcavePairList(body)
             areaVal = norm(nVec);
             if areaVal > 1e-6
                 nCells = nCells + 1;
-                rCell(nCells, :) = 0.25 .* (p1 + p2 + p3 + p4);
-                nCell(nCells, :) = nVec ./ areaVal;
+                ctr = 0.25 .* (p1 + p2 + p3 + p4);
+                nHat = nVec ./ areaVal;
+                rCell(nCells, :) = ctr;
+                nCell(nCells, :) = nHat;
                 aCell(nCells) = areaVal;
+                % Project the (generally non-planar) quad onto its mean plane,
+                % ordered CCW about the outward normal: p1 -> p4 -> p3 -> p2
+                quad = [p1; p4; p3; p2];
+                quad = quad - ((quad - ctr) * nHat.') .* nHat;
+                vCell(nCells, :, :) = reshape(quad, 1, 4, 3);
             end
         end
     end
@@ -53,6 +61,7 @@ function cp = buildConcavePairList(body)
     rCell = rCell(1:nCells, :);
     nCell = nCell(1:nCells, :);
     aCell = aCell(1:nCells);
+    vCell = vCell(1:nCells, :, :);
 
     % Find mutually visible concave pairs (P < Q)
     maxPairs = nCells * (nCells - 1) / 2;
@@ -89,7 +98,9 @@ function cp = buildConcavePairList(body)
         end
     end
 
-    % Keep top 350 strongest concave coupling pairs for speed & accuracy
+    % Keep ALL mutually visible pairs: the GO-PO double-bounce evaluator culls
+    % per look direction using the exact specular-reflection geometry, so no
+    % ad-hoc truncation by a heuristic "pair strength" is needed.
     if nPairs > 0
         pList = pList(1:nPairs);
         qList = qList(1:nPairs);
@@ -97,24 +108,22 @@ function cp = buildConcavePairList(body)
         nQ_dot_d = nQ_dot_d(1:nPairs);
         distVec = distVec(1:nPairs);
         dVec = dVec(1:nPairs, :);
-
-        pairStrength = (aCell(pList) .* aCell(qList)) .* (nP_dot_d .* nQ_dot_d) ./ (distVec + 0.25);
-        if nPairs > 350
-            [~, sortIdx] = sort(pairStrength, 'descend');
-            keep = sortIdx(1:350);
-            pList = pList(keep);
-            qList = qList(keep);
-            nP_dot_d = nP_dot_d(keep);
-            nQ_dot_d = nQ_dot_d(keep);
-            distVec = distVec(keep);
-            dVec = dVec(keep, :);
-            nPairs = 350;
-        end
     end
 
     cp = struct();
     cp.numPairs = nPairs;
+    % Cell (super-facet) geometry used by the GO-PO double-bounce evaluator
+    cp.cellCenter = rCell;
+    cp.cellNormal = nCell;
+    cp.cellArea = aCell;
+    cp.cellVerts = vCell;                 % [nCells x 4 x 3] planar CCW quads
+    cp.cellRadius = zeros(nCells, 1);
+    for c = 1:nCells
+        cp.cellRadius(c) = max(vecnorm(squeeze(vCell(c, :, :)) - rCell(c, :), 2, 2));
+    end
     if nPairs > 0
+        cp.pIdx = pList;
+        cp.qIdx = qList;
         cp.rP = rCell(pList, :);
         cp.rQ = rCell(qList, :);
         cp.nP = nCell(pList, :);
@@ -125,14 +134,14 @@ function cp = buildConcavePairList(body)
         cp.distPQ = distVec;
         cp.nP_dot_dPQ = nP_dot_d;
         cp.nQ_dot_dQP = nQ_dot_d;
-        % Effective mutual capture area of the concave pair
         cp.effArea = sqrt(cp.aP .* cp.aQ) .* sqrt(nP_dot_d .* nQ_dot_d);
-        cp.charSize = repmat(sqrt(mean([cp.aP; cp.aQ])), 1, 1);
     else
+        cp.pIdx = zeros(0, 1); cp.qIdx = zeros(0, 1);
         cp.rP = zeros(0, 3); cp.rQ = zeros(0, 3);
         cp.nP = zeros(0, 3); cp.nQ = zeros(0, 3);
+        cp.aP = zeros(0, 1); cp.aQ = zeros(0, 1);
         cp.dPQ = zeros(0, 3); cp.distPQ = zeros(0, 1);
         cp.nP_dot_dPQ = zeros(0, 1); cp.nQ_dot_dQP = zeros(0, 1);
-        cp.effArea = zeros(0, 1); cp.charSize = 0.2;
+        cp.effArea = zeros(0, 1);
     end
 end

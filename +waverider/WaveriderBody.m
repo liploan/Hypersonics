@@ -32,6 +32,7 @@ classdef WaveriderBody
         function obj = generate(obj)
             %GENERATE Run surface generation, frustum lofting, stitching, and verification.
             cfg = obj.Config;
+            cfg.validate();
             switch lower(cfg.Method)
                 case {'conical', 'osculating_cone'}
                     obj.SurfaceData = waverider.geometry.generateOsculatingCone(cfg);
@@ -48,7 +49,7 @@ classdef WaveriderBody
             obj.SurfaceData = waverider.geometry.appendConformalFrustum(obj.SurfaceData, cfg);
 
             obj.MeshData = waverider.geometry.stitchWatertightMesh(obj.SurfaceData, cfg);
-            obj.Report = waverider.mesh.verifyWatertight(obj.MeshData, cfg);
+            obj.Report = waverider.mesh.verifyWatertight(obj.MeshData, cfg, obj.SurfaceData);
             obj.AeroMetrics = obj.computePreliminaryAero();
             obj.SectionalAttributes = obj.computeSectionalAttributes();
         end
@@ -97,91 +98,45 @@ classdef WaveriderBody
         end
 
         function polar = computeAeroPolar(obj, alphaDegVec)
-            %COMPUTEAEROPOLAR Compute CL, CD_wave, L/D, and Cm across angle of attack alpha [deg].
+            %COMPUTEAEROPOLAR Compute CL, CD_wave, L/D, viscous L/D, and Cm across AoA alpha [deg].
+            %   Uses the exact same calibrated inviscid + Prandtl-Meyer surface pressure
+            %   model as AeroMetrics so polar(alpha=0) matches AeroMetrics to machine precision.
             if nargin < 2 || isempty(alphaDegVec)
                 alphaDegVec = linspace(-4.0, 16.0, 41);
             end
             alphaDegVec = alphaDegVec(:);
             nA = numel(alphaDegVec);
 
-            cfg = obj.Config;
-            TR = obj.MeshData.TR;
-            V = TR.Points;
-            F = TR.ConnectivityList;
-
-            v1 = V(F(:, 1), :);
-            v2 = V(F(:, 2), :);
-            v3 = V(F(:, 3), :);
-            faceCenters = (v1 + v2 + v3) ./ 3.0;
-
-            crossVec = 0.5 .* cross(v2 - v1, v3 - v1, 2); % Outward dS * n_hat
-            faceAreas = sqrt(sum(crossVec.^2, 2)) + 1e-15;
-            unitNormals = crossVec ./ faceAreas;
-
-            M = cfg.Mach;
-            g = cfg.Gamma;
-            CpMax = (2.0 / (g * M^2)) * ...
-                (((g + 1.0)^2 * M^2 / (4.0 * g * M^2 - 2.0 * (g - 1.0)))^(g / (g - 1.0)) * ...
-                 ((1.0 - g + 2.0 * g * M^2) / (g + 1.0)) - 1.0);
-
-            isUpper  = (obj.MeshData.FacePatchID == 1);
-            isLower  = (obj.MeshData.FacePatchID == 2);
-            isAftExt = (obj.MeshData.FacePatchID == 4) | (obj.MeshData.FacePatchID == 5);
-            activeMask = isUpper | isLower | isAftExt;
-
-            Sref = max(obj.Report.PlanformArea, 1e-12);
-            Lref = cfg.Length;
-            xCG = obj.Report.VolumeCentroid;
-            rArm = faceCenters - xCG;
-
-            NxWave = obj.SurfaceData.NxWaverider;
-            meanFlowCp0 = mean( reshape(obj.SurfaceData.Cp_low(1:NxWave, :), [], 1) );
-            sinDelta0 = max(mean(-unitNormals(isLower, 1)), 1e-4);
-
             CL = zeros(nA, 1);
             CD = zeros(nA, 1);
+            CY = zeros(nA, 1);
             LD = zeros(nA, 1);
+            CD_visc = zeros(nA, 1);
+            LD_visc = zeros(nA, 1);
             Cm = zeros(nA, 1);
 
+            geomCache = obj.buildAeroGeometryCache();
+
             for k = 1:nA
-                aRad = deg2rad(alphaDegVec(k));
-                uInf = [cos(aRad), 0.0, sin(aRad)];
-                liftDir = [-sin(aRad), 0.0, cos(aRad)];
-
-                nDotU = unitNormals * uInf.';
-                sinImpact = max(-nDotU, 0.0);
-                sinLee = max(nDotU, 0.0);
-
-                CpFace = zeros(size(F, 1), 1);
-                impactScale = (sinImpact(isLower) ./ sinDelta0).^2;
-                CpFace(isLower) = (0.55 * meanFlowCp0 .* min(impactScale, 4.0) + ...
-                                   0.45 * CpMax .* (sinImpact(isLower).^2)) .* (sinImpact(isLower) > 0) - ...
-                                  min(1.0 / (M^2), (1.5 / M) .* sinLee(isLower)) .* (sinImpact(isLower) == 0);
-
-                CpExpansionUp = -min(1.2 / (M^2), (2.0 / M) .* sinLee(isUpper));
-                CpFace(isUpper) = CpMax .* (sinImpact(isUpper).^2) + CpExpansionUp .* (sinImpact(isUpper) == 0);
-
-                if any(isAftExt)
-                    CpExpAft = -min(1.0 / (M^2), (1.5 / M) .* sinLee(isAftExt));
-                    CpFace(isAftExt) = CpMax .* (sinImpact(isAftExt).^2) + CpExpAft .* (sinImpact(isAftExt) == 0);
-                end
-
-                dF = -CpFace(activeMask) .* crossVec(activeMask, :);
-                F_total = sum(dF, 1) ./ Sref;
-
-                CD(k) = dot(F_total, uInf);
-                CL(k) = dot(F_total, liftDir);
-                LD(k) = CL(k) / max(CD(k), 1e-6);
-
-                dM = cross(rArm(activeMask, :), dF, 2);
-                Cm(k) = sum(dM(:, 2)) / (Sref * Lref);
+                res = obj.evaluateAeroState(alphaDegVec(k), geomCache);
+                CL(k) = res.CL;
+                CD(k) = res.CD_wave;
+                CY(k) = res.CY;
+                LD(k) = res.LD_inviscid;
+                CD_visc(k) = res.CD_total_viscous_est;
+                LD_visc(k) = res.LD_viscous_est;
+                Cm(k) = res.Cm;
             end
 
             polar = struct();
             polar.AlphaDeg = alphaDegVec;
             polar.CL = CL;
             polar.CD_wave = CD;
+            polar.CY = CY;
             polar.LD_inviscid = LD;
+            polar.CD_friction_est = geomCache.CD_friction_est;
+            polar.CD_viscous_est = CD_visc;
+            polar.LD_viscous_est = LD_visc;
             polar.Cm = Cm;
         end
 
@@ -305,13 +260,15 @@ classdef WaveriderBody
             fprintf('  Volumetric Efficiency     : eta_V = V^(2/3)/S_plan = %.4f\n', rep.VolumetricEfficiency);
             fprintf('  Inviscid Wave Aero (AoA=0): C_L = %.4f | C_D,wave = %.4f | (L/D)_inviscid = %.2f\n', ...
                 aero.CL, aero.CD_wave, aero.LD_inviscid);
+            fprintf('  Viscous Est (30 km StdAtm): C_D,f = %.4f | C_D,base = %.4f | (L/D)_viscous = %.2f\n', ...
+                aero.CD_friction_est, aero.CD_base_est, aero.LD_viscous_est);
             fprintf('----------------------------------------------------------------\n');
         end
     end
 
     methods (Access = private)
-        function aero = computePreliminaryAero(obj)
-            %COMPUTEPRELIMINARYAERO Integrate pressure forces over surface patches.
+        function cache = buildAeroGeometryCache(obj)
+            %BUILDAEROGEOMETRYCACHE Precompute facet geometry, calibrated lower-surface factors, & Eckert Cf.
             cfg = obj.Config;
             TR = obj.MeshData.TR;
             V = TR.Points;
@@ -320,8 +277,9 @@ classdef WaveriderBody
             v1 = V(F(:, 1), :);
             v2 = V(F(:, 2), :);
             v3 = V(F(:, 3), :);
+            faceCenters = (v1 + v2 + v3) ./ 3.0;
 
-            crossVec = 0.5 .* cross(v2 - v1, v3 - v1, 2);
+            crossVec = 0.5 .* cross(v2 - v1, v3 - v1, 2); % Outward dS * n_hat
             faceAreas = sqrt(sum(crossVec.^2, 2)) + 1e-15;
             unitNormals = crossVec ./ faceAreas;
 
@@ -331,42 +289,140 @@ classdef WaveriderBody
                 (((g + 1.0)^2 * M^2 / (4.0 * g * M^2 - 2.0 * (g - 1.0)))^(g / (g - 1.0)) * ...
                  ((1.0 - g + 2.0 * g * M^2) / (g + 1.0)) - 1.0);
 
-            sinImpact = max(-unitNormals(:, 1), 0.0);
-
-            CpFace = zeros(size(F, 1), 1);
             isUpper  = (obj.MeshData.FacePatchID == 1);
             isLower  = (obj.MeshData.FacePatchID == 2);
             isAftExt = (obj.MeshData.FacePatchID == 4) | (obj.MeshData.FacePatchID == 5);
+            activeMask = isUpper | isLower | isAftExt;
 
-            NxWave = obj.SurfaceData.NxWaverider;
-            meanFlowCp = mean( reshape(obj.SurfaceData.Cp_low(1:NxWave, :), [], 1) );
-            CpFace(isLower) = 0.65 * meanFlowCp + 0.35 * CpMax .* (sinImpact(isLower).^2);
-
-            sinLee = max(unitNormals(isUpper, 1), 0.0);
-            CpExpansion = -min(1.2 / (M^2), (2.0 / M) .* sinLee);
-            CpFace(isUpper) = CpMax .* (sinImpact(isUpper).^2) + CpExpansion .* (sinImpact(isUpper) == 0);
-
-            if any(isAftExt)
-                sinLeeAft = max(unitNormals(isAftExt, 1), 0.0);
-                CpExpAft = -min(1.0 / (M^2), (1.5 / M) .* sinLeeAft);
-                CpFace(isAftExt) = CpMax .* (sinImpact(isAftExt).^2) + CpExpAft .* (sinImpact(isAftExt) == 0);
+            % Calibrate embedded Newtonian factor K_cal on each lower-surface facet so
+            % Cp(alpha = 0) equals the exact Taylor-Maccoll / wedge / CST FaceCpDesign.
+            sinImpact0Low = max(-unitNormals(isLower, 1), 0.0);
+            if isfield(obj.MeshData, 'FaceCpDesign') && numel(obj.MeshData.FaceCpDesign) == size(F, 1)
+                cpDesignLow = obj.MeshData.FaceCpDesign(isLower);
+            else
+                NxWave = obj.SurfaceData.NxWaverider;
+                cpDesignLow = repmat(mean(obj.SurfaceData.Cp_low(1:NxWave, :), 'all'), sum(isLower), 1);
             end
+            cpMN0Low = CpMax .* (sinImpact0Low.^2);
+            kCalLow = ones(sum(isLower), 1);
+            validWindward0 = sinImpact0Low > 1e-4;
+            kCalLow(validWindward0) = cpDesignLow(validWindward0) ./ cpMN0Low(validWindward0);
+            kCalLow(~validWindward0) = 1.0;
+
+            % Eckert (1955) reference-temperature turbulent skin-friction estimate at h = 30 km (US Std Atm)
+            T_inf = 226.51;
+            rho_inf = 0.01841;
+            a_inf = sqrt(g * 287.05 * T_inf);
+            U_inf = M * a_inf;
+            T_wall = 1000.0;
+            Pr = 0.72;
+            rRec = Pr^(1.0 / 3.0);
+            T_aw = T_inf * (1.0 + 0.5 * rRec * (g - 1.0) * M^2);
+            T_star = T_inf + 0.5 * (T_wall - T_inf) + 0.22 * (T_aw - T_inf);
+            mu_star = 1.458e-6 * (T_star^1.5) / (T_star + 110.4);
+            rho_star = rho_inf * (T_inf / T_star);
+            L_char = max(0.67 * cfg.Length, 0.1);
+            Re_star = max(rho_star * U_inf * L_char / mu_star, 1e4);
+            Cf_star = 0.074 / (Re_star^0.2);
+            Cf_inf = Cf_star * (rho_star / rho_inf);
 
             Sref = max(obj.Report.PlanformArea, 1e-12);
-            activeMask = isUpper | isLower | isAftExt;
-            F_vec = sum(-CpFace(activeMask) .* crossVec(activeMask, :), 1) ./ Sref;
+            CD_friction_est = Cf_inf * (obj.Report.WettedArea / Sref);
+            Cp_base = -1.0 / (g * M^2);
+            CD_base_est = -Cp_base * (obj.Report.BaseArea / Sref);
 
-            CD_wave = F_vec(1);
-            CL = F_vec(3);
+            cache = struct();
+            cache.crossVec = crossVec;
+            cache.faceAreas = faceAreas;
+            cache.unitNormals = unitNormals;
+            cache.rArm = faceCenters - obj.Report.VolumeCentroid;
+            cache.M = M;
+            cache.g = g;
+            cache.CpMax = CpMax;
+            cache.isUpper = isUpper;
+            cache.isLower = isLower;
+            cache.isAftExt = isAftExt;
+            cache.activeMask = activeMask;
+            cache.cpDesignLow = cpDesignLow;
+            cache.validWindward0 = validWindward0;
+            cache.kCalLow = kCalLow;
+            cache.Sref = Sref;
+            cache.Lref = cfg.Length;
+            cache.CD_friction_est = CD_friction_est;
+            cache.CD_base_est = CD_base_est;
+        end
 
-            aero = struct();
-            aero.CL = CL;
-            aero.CD_wave = CD_wave;
-            aero.LD_inviscid = CL / max(CD_wave, 1e-9);
-            aero.CpMax = CpMax;
-            aero.CpFace = CpFace;
-            aero.FaceNormals = unitNormals;
-            aero.FaceAreas = faceAreas;
+        function res = evaluateAeroState(obj, alphaDeg, cache)
+            %EVALUATEAEROSTATE Evaluate surface Cp, forces, and moments at angle of attack alphaDeg.
+            if nargin < 3
+                cache = obj.buildAeroGeometryCache();
+            end
+            aRad = deg2rad(alphaDeg);
+            uInf = [cos(aRad), 0.0, sin(aRad)];
+            liftDir = [-sin(aRad), 0.0, cos(aRad)];
+
+            nDotU = cache.unitNormals * uInf.';
+            sinImpact = max(-nDotU, 0.0);
+            sinLee = max(nDotU, 0.0);
+
+            M = cache.M;
+            g = cache.g;
+            pmFactor = 2.0 / (g * M^2);
+            pmExp = 2.0 * g / (g - 1.0);
+            CpPM = pmFactor .* (max(1.0 - 0.5 * (g - 1.0) * M .* sinLee, 0.0).^pmExp - 1.0);
+
+            CpFace = zeros(size(cache.unitNormals, 1), 1);
+
+            sinImpLow = sinImpact(cache.isLower);
+            if abs(alphaDeg) < 1e-13
+                cpLow = cache.cpDesignLow;
+                leeMask0 = ~cache.validWindward0 & (sinLee(cache.isLower) > 0);
+                cpLowArr = CpPM(cache.isLower);
+                cpLow(leeMask0) = cpLowArr(leeMask0);
+                CpFace(cache.isLower) = cpLow;
+            else
+                cpWindLow = cache.kCalLow .* cache.CpMax .* (sinImpLow.^2);
+                cpLeeLow = CpPM(cache.isLower);
+                CpFace(cache.isLower) = cpWindLow .* (sinImpLow > 0) + cpLeeLow .* (sinImpLow == 0);
+            end
+
+            upAndAft = cache.isUpper | cache.isAftExt;
+            sinImpUA = sinImpact(upAndAft);
+            CpFace(upAndAft) = cache.CpMax .* (sinImpUA.^2) .* (sinImpUA > 0) + CpPM(upAndAft) .* (sinImpUA == 0);
+
+            dF = -CpFace(cache.activeMask) .* cache.crossVec(cache.activeMask, :);
+            F_total = sum(dF, 1) ./ cache.Sref;
+
+            CD_wave = dot(F_total, uInf);
+            CL = dot(F_total, liftDir);
+            CY = F_total(2);
+            LD_inviscid = CL / max(CD_wave, 1e-9);
+
+            CD_total_visc = CD_wave + cache.CD_friction_est;
+            LD_viscous_est = CL / max(CD_total_visc, 1e-9);
+
+            dM = cross(cache.rArm(cache.activeMask, :), dF, 2);
+            Cm = sum(dM(:, 2)) / (cache.Sref * cache.Lref);
+
+            res = struct();
+            res.CL = CL;
+            res.CD_wave = CD_wave;
+            res.CY = CY;
+            res.LD_inviscid = LD_inviscid;
+            res.CD_friction_est = cache.CD_friction_est;
+            res.CD_base_est = cache.CD_base_est;
+            res.CD_total_viscous_est = CD_total_visc;
+            res.LD_viscous_est = LD_viscous_est;
+            res.Cm = Cm;
+            res.CpMax = cache.CpMax;
+            res.CpFace = CpFace;
+            res.FaceNormals = cache.unitNormals;
+            res.FaceAreas = cache.faceAreas;
+        end
+
+        function aero = computePreliminaryAero(obj)
+            %COMPUTEPRELIMINARYAERO Evaluate design-point (alpha = 0 deg) aerodynamic metrics.
+            aero = obj.evaluateAeroState(0.0);
         end
     end
 end

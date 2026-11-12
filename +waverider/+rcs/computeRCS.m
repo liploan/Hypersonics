@@ -1,31 +1,36 @@
 function rcsData = computeRCS(body, freqGHz, azDeg, elDeg, varargin)
-%COMPUTERCS Multi-band Physical Optics + Concave Multi-Bounce + Edge Diffraction RCS solver.
+%COMPUTERCS Monostatic RCS: exact facet Physical Optics + GO-PO concave double bounce.
 %   rcsData = COMPUTERCS(body, freqGHz, azDeg, elDeg, Name, Value) computes
-%   the monostatic Radar Cross Section (RCS) of a watertight hypersonic
-%   waverider body from UHF (0.3 GHz) to X-band (10+ GHz).
+%   the monostatic Radar Cross Section (RCS) of a watertight waverider body
+%   (UHF 0.3 GHz to X-band 12 GHz).
 %
 %   Coordinate & Angle Convention:
 %     - Vehicle nose points toward -X (nose at X=0, base at X=L).
-%     - Monostatic radar direction unit vector pointing FROM target TO radar:
-%         az = 0 deg, el = 0 deg   -> Nose-on illumination (-X direction)
-%         az = 90 deg, el = 0 deg  -> Starboard broadside (+Y direction)
-%         az = 180 deg, el = 0 deg -> Tail-on (+X direction)
-%         el > 0 deg               -> Dorsal (upper hemisphere look-down)
-%         el < 0 deg               -> Ventral (lower hemisphere look-up into concave underside)
+%     - Unit vector FROM target TO radar:
 %         u_radar = [-cos(el)*cos(az), cos(el)*sin(az), sin(el)]
+%         az = 0 deg  -> nose-on,  az = 90 deg -> starboard broadside,
+%         az = 180    -> tail-on,  el > 0 dorsal, el < 0 ventral (look-up).
 %
-%   Scattering Mechanisms Modeled:
-%     1. Coherent Facet Physical Optics (PO) with exact Gordon/sinc phase-slope
-%        integration over each triangle (accurate from UHF to X-band even when
-%        facets are several wavelengths across).
-%     2. Concave Underside Double-Bounce (Iterative PO / Ray-Bounce Coupling)
-%        between mutually visible port/starboard facets on the concave lower
-%        compression surface.
-%     3. Sharp Swept Leading-Edge Travelling/Diffraction contribution (MEC).
+%   Scattering mechanisms:
+%     1. Single-bounce Physical Optics over every lit facet using the EXACT
+%        closed-form triangle integral (Gordon 1975; facetPhaseIntegral):
+%            S_PO = (i k / sqrt(pi)) sum_f (n_f . u) \int_f exp(i 2k u . r) dA
+%        sigma = |S|^2 reproduces 4 pi A^2 / lambda^2 for a flat plate and
+%        pi a^2 for a sphere (tests/test_physics_validation.m).
+%        Lit test is n . u > 0 only (no self-shadowing between parts).
+%     2. Concave-underside double bounce via GO-PO (doubleBounceGOPO),
+%        validated against the closed-form 90-deg dihedral.
+%     3. OPTIONAL leading-edge fringe term (IncludeEdgeDiffraction, default
+%        false). This is an UNCALIBRATED heuristic, not a true MEC/PTD
+%        solution; PO already contains the physical-optics edge contribution.
+%
+%   Scalar (polarisation-averaged) model: no HH/VV distinction, no creeping
+%   waves, no travelling waves, no shadowing/blockage, PEC surfaces. Results
+%   in the UHF resonance regime (body only a few wavelengths) are indicative.
 
     p = inputParser;
     addParameter(p, 'IncludeMultiBounce', true, @islogical);
-    addParameter(p, 'IncludeEdgeDiffraction', true, @islogical);
+    addParameter(p, 'IncludeEdgeDiffraction', false, @islogical);
     addParameter(p, 'Polarization', 'Mean', @(x) ischar(x) || isstring(x));
     addParameter(p, 'PrecomputedConcavePairs', [], @(x) isstruct(x) || isempty(x));
     parse(p, varargin{:});
@@ -61,20 +66,14 @@ function rcsData = computeRCS(body, freqGHz, azDeg, elDeg, varargin)
     v1 = V(F(:, 1), :);
     v2 = V(F(:, 2), :);
     v3 = V(F(:, 3), :);
-    faceCenters = (v1 + v2 + v3) ./ 3.0; % [nFaces x 3]
-
     crossVec = 0.5 .* cross(v2 - v1, v3 - v1, 2);
     faceAreas = sqrt(sum(crossVec.^2, 2)) + 1e-15;
     faceNormals = crossVec ./ faceAreas; % Outward unit normals [nFaces x 3]
 
-    % Tangent vectors & characteristic lengths on each triangle for sinc factor
-    e1 = v2 - v1;
-    e2 = v3 - v1;
-
     isUpper = (patchID == 1);
     isLower = (patchID == 2);
 
-    % Precompute mutually visible concave facet pairs on the lower surface
+    % Mutually visible concave super-cell pairs on the lower surface
     if opts.IncludeMultiBounce
         if isempty(opts.PrecomputedConcavePairs)
             concavePairs = waverider.rcs.buildConcavePairList(body);
@@ -85,15 +84,14 @@ function rcsData = computeRCS(body, freqGHz, azDeg, elDeg, varargin)
         concavePairs = struct('numPairs', 0);
     end
 
-    % Extract leading-edge segments for sharp-edge diffraction
-    X_le = body.SurfaceData.X_low(1, :).';
-    Y_le = body.SurfaceData.Y_low(1, :).';
-    Z_le = body.SurfaceData.Z_low(1, :).';
-    P_le = [X_le, Y_le, Z_le];
-    leMid = 0.5 .* (P_le(1:end-1, :) + P_le(2:end, :));
-    dLE = P_le(2:end, :) - P_le(1:end-1, :);
-    leLen = sqrt(sum(dLE.^2, 2)) + 1e-12;
-    leTan = dLE ./ leLen;
+    % Leading-edge segments for the optional fringe heuristic
+    if opts.IncludeEdgeDiffraction
+        P_le = [body.SurfaceData.X_low(1, :).', body.SurfaceData.Y_low(1, :).', body.SurfaceData.Z_low(1, :).'];
+        leMid = 0.5 .* (P_le(1:end-1, :) + P_le(2:end, :));
+        dLE = P_le(2:end, :) - P_le(1:end-1, :);
+        leLen = sqrt(sum(dLE.^2, 2)) + 1e-12;
+        leTan = dLE ./ leLen;
+    end
 
     % Allocate outputs [nDirs x nF]
     sigmaTotal_m2  = zeros(nDirs, nF);
@@ -103,69 +101,48 @@ function rcsData = computeRCS(body, freqGHz, azDeg, elDeg, varargin)
     sigmaLower_m2  = zeros(nDirs, nF);
     sigmaEdge_m2   = zeros(nDirs, nF);
 
-    % Loop over frequencies and evaluate vectorized over directions
+    % Process directions in blocks to bound memory ([nFaces x block] complex)
+    blk = max(1, floor(4e6 / size(F, 1)));
+
     for fIdx = 1:nF
         k0 = kVec(fIdx);
-        lam = lambdaVec(fIdx);
+        S_single_all   = zeros(nDirs, 1);
+        S_single_upper = zeros(nDirs, 1);
+        S_single_lower = zeros(nDirs, 1);
+        for d0 = 1:blk:nDirs
+            dI = d0:min(d0 + blk - 1, nDirs);
+            U = uRadar(dI, :);
+            cosTheta = faceNormals * U.';                       % [nFaces x nb]
+            lit = cosTheta > 0;
+            Iface = waverider.rcs.facetPhaseIntegral(v1, v2, v3, faceNormals, 2.0 * k0 .* U);
+            facetComplex = (1i * k0 / sqrt(pi)) .* (cosTheta .* lit) .* Iface;
+            S_single_all(dI)   = sum(facetComplex, 1).';
+            S_single_upper(dI) = sum(facetComplex(isUpper, :), 1).';
+            S_single_lower(dI) = sum(facetComplex(isLower, :), 1).';
+        end
 
-        % -----------------------------------------------------------------
-        % 1. Coherent Single-Bounce Physical Optics (PO) with Sinc Integration
-        % -----------------------------------------------------------------
-        % Illumination cosine: cos(theta_i) = n_hat . u_radar [nFaces x nDirs]
-        cosTheta = faceNormals * uRadar.';
-        litMask = (cosTheta > 1e-5);
-
-        % Phase at triangle centroids: exp(i * 2 * k0 * r_c . u_radar)
-        rDotU = faceCenters * uRadar.'; % [nFaces x nDirs]
-
-        % Gordon/Sinc triangle intra-facet phase variation factor so large facets
-        % at X-band integrate accurately without centroid aliasing:
-        % Phase differences along edges e1 and e2:
-        phi1 = k0 .* (e1 * uRadar.'); % [nFaces x nDirs]
-        phi2 = k0 .* (e2 * uRadar.'); % [nFaces x nDirs]
-        sinc1 = sin(phi1 ./ 2.0 + 1e-12) ./ (phi1 ./ 2.0 + 1e-12);
-        sinc2 = sin(phi2 ./ 2.0 + 1e-12) ./ (phi2 ./ 2.0 + 1e-12);
-        phi12 = phi1 - phi2;
-        sinc12 = sin(phi12 ./ 2.0 + 1e-12) ./ (phi12 ./ 2.0 + 1e-12);
-        facetShapeFactor = (sinc1 .* sinc2 .* sinc12).^(1.0 / 3.0);
-
-        % Complex PO scattering amplitude per facet:
-        % S_PO = (i * k0 / sqrt(pi)) * sum_f A_f * (n_f . u) * sincFactor * exp(i * 2 * k0 * r_f . u)
-        prefactorPO = (1i * k0 / sqrt(pi));
-        facetWeight = (faceAreas .* cosTheta) .* litMask .* facetShapeFactor;
-        facetComplex = prefactorPO .* facetWeight .* exp(1i * 2.0 * k0 .* rDotU);
-
-        S_single_all   = sum(facetComplex, 1).';                 % [nDirs x 1]
-        S_single_upper = sum(facetComplex(isUpper, :), 1).';     % [nDirs x 1]
-        S_single_lower = sum(facetComplex(isLower, :), 1).';     % [nDirs x 1]
-
-        % -----------------------------------------------------------------
-        % 2. Sharp Swept Leading-Edge Diffraction (MEC / PTD)
-        % -----------------------------------------------------------------
+        % Optional uncalibrated leading-edge fringe heuristic
         S_edge = zeros(nDirs, 1);
         if opts.IncludeEdgeDiffraction
-            % Only active when radar illuminates near leading-edge Keller cone
-            tDotU = leTan * uRadar.'; % [nSegs x nDirs]
+            tDotU = leTan * uRadar.';
             sinBetaEdge = sqrt(max(1.0 - tDotU.^2, 1e-4));
             phiEdge = k0 .* leLen .* tDotU;
-            sincEdge = sin(phiEdge + 1e-12) ./ (phiEdge + 1e-12);
+            sincEdge = ones(size(phiEdge));
+            nz = abs(phiEdge) > 1e-12;
+            sincEdge(nz) = sin(phiEdge(nz)) ./ phiEdge(nz);
             rLeDotU = leMid * uRadar.';
-            % Equivalent edge current diffraction amplitude
             edgeDiffCoeff = 0.22 ./ sqrt(pi) .* sinBetaEdge;
-            S_edge_seg = (edgeDiffCoeff .* leLen) .* sincEdge .* exp(1i * 2.0 * k0 .* rLeDotU);
-            S_edge = sum(S_edge_seg, 1).';
+            S_edge = sum((edgeDiffCoeff .* leLen) .* sincEdge .* exp(1i * 2.0 * k0 .* rLeDotU), 1).';
         end
 
-        % -----------------------------------------------------------------
-        % 3. Concave Underside Double-Bounce (Iterative PO / Ray Coupling)
-        % -----------------------------------------------------------------
+        % GO-PO concave double bounce
         S_mb = zeros(nDirs, 1);
         if opts.IncludeMultiBounce && concavePairs.numPairs > 0
-            S_mb = evaluateConcaveDoubleBounce(concavePairs, uRadar, k0, lam);
+            S_mb = waverider.rcs.doubleBounceGOPO(concavePairs, uRadar, k0);
         end
 
-        % Combine coherent and incoherent floor (avoid deep -80 dB artificial nulls)
-        noiseFloor_m2 = 1e-5; % -50 dBsm physical diffuse floor
+        % Small incoherent display floor (-50 dBsm) to avoid -Inf in nulls
+        noiseFloor_m2 = 1e-5;
         sigmaSingle_m2(:, fIdx) = abs(S_single_all + S_edge).^2 + noiseFloor_m2;
         sigmaMB_m2(:, fIdx)     = abs(S_mb).^2;
         sigmaTotal_m2(:, fIdx)  = abs(S_single_all + S_edge + S_mb).^2 + noiseFloor_m2;
@@ -188,41 +165,4 @@ function rcsData = computeRCS(body, freqGHz, azDeg, elDeg, varargin)
     rcsData.SigmaEdge_dBsm = 10.0 .* log10(max(sigmaEdge_m2, 1e-10));
     rcsData.MultiBounceGain_dB = rcsData.SigmaTotal_dBsm - rcsData.SigmaSingle_dBsm;
     rcsData.ConcavePairs = concavePairs;
-end
-
-function S_mb = evaluateConcaveDoubleBounce(cp, uRadar, k0, lam)
-%EVALUATECONCAVEDOUBLEBOUNCE Vectorized double-bounce PO across concave lower surface.
-    % Incident wave vector k_inc = -uRadar [nDirs x 3]
-    % Both patch P and patch Q must be illuminated or in the bounce path
-    cosP = cp.nP * uRadar.'; % [nPairs x nDirs]
-    cosQ = cp.nQ * uRadar.'; % [nPairs x nDirs]
-    bothLit = (cosP > 0.02) & (cosQ > 0.02);
-
-    % Specular reflection of incident ray (-uRadar) off patch P:
-    % s_refl = -uRadar + 2*(uRadar . nP)*nP
-    % Alignment of reflected ray from P with inter-patch vector dPQ:
-    % s_refl . dPQ = -(dPQ . uRadar) + 2 * (nP . uRadar) * (nP . dPQ)
-    dDotU = cp.dPQ * uRadar.'; % [nPairs x nDirs]
-    alignPQ = -dDotU + 2.0 .* cosP .* repmat(cp.nP_dot_dPQ, 1, size(uRadar, 1));
-    % Also symmetric bounce Q -> P:
-    alignQP =  dDotU + 2.0 .* cosQ .* repmat(cp.nQ_dot_dQP, 1, size(uRadar, 1));
-    alignMax = max(alignPQ, alignQP);
-
-    % Diffraction-broadened bounce lobe width (narrower at X-band, wider at UHF)
-    lobeSharpness = min(max(1.5 * k0 * cp.charSize, 4.0), 45.0);
-    lobeMask = (alignMax > 0.65) & bothLit;
-    lobeWeight = zeros(size(alignMax));
-    lobeWeight(lobeMask) = exp(-lobeSharpness .* (1.0 - alignMax(lobeMask)));
-
-    % Effective double-bounce projected area & electrical size scaling
-    % High-frequency dihedral corner factor scales with k0 / sqrt(pi) and
-    % transitions smoothly in the UHF resonance regime (D_trough ~ lambda)
-    elecScale = min((cp.distPQ ./ (0.35 * lam)).^0.65, 2.8);
-    effAreaMat = repmat(cp.effArea .* elecScale, 1, size(uRadar, 1));
-    ampPair = (1i * k0 / sqrt(pi)) .* effAreaMat .* ...
-              sqrt(max(cosP .* cosQ, 0.0)) .* lobeWeight;
-
-    % Total two-bounce phase path: (rP . u + rQ . u - distPQ) * k0
-    phasePath = k0 .* ((cp.rP + cp.rQ) * uRadar.' - repmat(cp.distPQ, 1, size(uRadar, 1)));
-    S_mb = sum(ampPair .* exp(1i .* phasePath), 1).';
 end

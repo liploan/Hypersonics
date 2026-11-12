@@ -99,8 +99,8 @@ function meshData = stitchWatertightMesh(surfData, cfg)
     vertices = vertices(1:nVerts, :);
 
     % 4. Triangulate Waverider Forebody Upper & Lower (rows 1 .. NxWave)
-    facesUpWave  = triangulateStructuredGrid(vid_up(1:NxWave, :), false);
-    facesLowWave = triangulateStructuredGrid(vid_low(1:NxWave, :), true);
+    facesUpWave = triangulateStructuredGrid(vid_up(1:NxWave, :), false);
+    [facesLowWave, cpLowWave] = triangulateStructuredGrid(vid_low(1:NxWave, :), true, surfData.Cp_low(1:NxWave, :));
 
     % 5. Triangulate Conformal Transition Frustum (rows NxWave .. NxFrustEnd)
     facesFrust = zeros(0, 3);
@@ -127,6 +127,11 @@ function meshData = stitchWatertightMesh(surfData, cfg)
                    4 * ones(size(facesFrust, 1), 1); ...
                    5 * ones(size(facesRocket, 1), 1); ...
                    3 * ones(size(facesBase, 1), 1)];
+    faceCpDesign = [nan(size(facesUpWave, 1), 1); ...
+                    cpLowWave; ...
+                    nan(size(facesFrust, 1), 1); ...
+                    nan(size(facesRocket, 1), 1); ...
+                    nan(size(facesBase, 1), 1)];
 
     TR = triangulation(faces, vertices);
 
@@ -140,16 +145,28 @@ function meshData = stitchWatertightMesh(surfData, cfg)
     meshData.FacesRocket = facesRocket;
     meshData.FacesBase = facesBase;
     meshData.FacePatchID = facePatchID; % 1=Upper, 2=Lower, 3=Base, 4=Frustum, 5=Rocket
+    meshData.FaceCpDesign = faceCpDesign;
     meshData.X_base = X_base;
     meshData.Y_base = Y_base;
     meshData.Z_base = Z_base;
 end
 
-function faces = triangulateStructuredGrid(vidGrid, reverseWinding)
-%TRIANGULATESTRUCTUREDGRID Triangulate a vertex-ID grid, skipping collapsed triangles.
+function [faces, faceVals] = triangulateStructuredGrid(vidGrid, reverseWinding, valGrid)
+%TRIANGULATESTRUCTUREDGRID Mirror-symmetric triangulation of a structured vertex-ID grid.
+%   Uses diagonal A-C on the port half (c <= floor((Nc-1)/2)) and mirror
+%   diagonal B-D on the starboard half (c > floor((Nc-1)/2)) so symmetric
+%   waveriders have exact port/starboard aerodynamic and RCS symmetry.
     [Nr, Nc] = size(vidGrid);
-    faces = zeros(2 * (Nr - 1) * (Nc - 1), 3);
+    maxF = 2 * (Nr - 1) * (Nc - 1);
+    faces = zeros(maxF, 3);
+    hasVal = (nargin >= 3) && ~isempty(valGrid);
+    if hasVal
+        faceVals = zeros(maxF, 1);
+    else
+        faceVals = [];
+    end
     nFaces = 0;
+    halfCols = floor((Nc - 1) / 2);
 
     for r = 1:(Nr - 1)
         for c = 1:(Nc - 1)
@@ -158,25 +175,60 @@ function faces = triangulateStructuredGrid(vidGrid, reverseWinding)
             C = vidGrid(r + 1, c + 1);
             D = vidGrid(r, c + 1);
 
-            if (A ~= B) && (B ~= C) && (C ~= A)
-                nFaces = nFaces + 1;
-                if reverseWinding
-                    faces(nFaces, :) = [A, C, B];
-                else
-                    faces(nFaces, :) = [A, B, C];
+            if c <= halfCols
+                % Port half: split quad along diagonal A-C
+                if (A ~= B) && (B ~= C) && (C ~= A)
+                    nFaces = nFaces + 1;
+                    if reverseWinding
+                        faces(nFaces, :) = [A, C, B];
+                    else
+                        faces(nFaces, :) = [A, B, C];
+                    end
+                    if hasVal
+                        faceVals(nFaces) = (valGrid(r, c) + valGrid(r + 1, c) + valGrid(r + 1, c + 1)) / 3.0;
+                    end
                 end
-            end
-
-            if (A ~= C) && (C ~= D) && (D ~= A)
-                nFaces = nFaces + 1;
-                if reverseWinding
-                    faces(nFaces, :) = [A, D, C];
-                else
-                    faces(nFaces, :) = [A, C, D];
+                if (A ~= C) && (C ~= D) && (D ~= A)
+                    nFaces = nFaces + 1;
+                    if reverseWinding
+                        faces(nFaces, :) = [A, D, C];
+                    else
+                        faces(nFaces, :) = [A, C, D];
+                    end
+                    if hasVal
+                        faceVals(nFaces) = (valGrid(r, c) + valGrid(r + 1, c + 1) + valGrid(r, c + 1)) / 3.0;
+                    end
+                end
+            else
+                % Starboard half: split quad along mirror diagonal B-D
+                if (A ~= B) && (B ~= D) && (D ~= A)
+                    nFaces = nFaces + 1;
+                    if reverseWinding
+                        faces(nFaces, :) = [A, D, B];
+                    else
+                        faces(nFaces, :) = [A, B, D];
+                    end
+                    if hasVal
+                        faceVals(nFaces) = (valGrid(r, c) + valGrid(r + 1, c) + valGrid(r, c + 1)) / 3.0;
+                    end
+                end
+                if (B ~= C) && (C ~= D) && (D ~= B)
+                    nFaces = nFaces + 1;
+                    if reverseWinding
+                        faces(nFaces, :) = [B, D, C];
+                    else
+                        faces(nFaces, :) = [B, C, D];
+                    end
+                    if hasVal
+                        faceVals(nFaces) = (valGrid(r + 1, c) + valGrid(r + 1, c + 1) + valGrid(r, c + 1)) / 3.0;
+                    end
                 end
             end
         end
     end
 
     faces = faces(1:nFaces, :);
+    if hasVal
+        faceVals = faceVals(1:nFaces);
+    end
 end

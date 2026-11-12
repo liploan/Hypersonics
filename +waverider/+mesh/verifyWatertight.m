@@ -1,8 +1,9 @@
-function report = verifyWatertight(meshData, cfg)
-%VERIFYWATERTIGHT Rigorous topological & volumetric verification of a 3D mesh.
-%   report = VERIFYWATERTIGHT(meshData, cfg) checks boundary edges, edge
-%   manifoldness, half-edge orientation consistency, Euler characteristic,
-%   face areas, enclosed volume, planform area, and volumetric efficiency.
+function report = verifyWatertight(meshData, cfg, surfData)
+%VERIFYWATERTIGHT Rigorous topological, geometric, & volumetric verification of a 3D mesh.
+%   report = VERIFYWATERTIGHT(meshData, cfg, surfData) checks boundary edges,
+%   edge manifoldness, half-edge orientation consistency, Euler characteristic,
+%   scale-relative degenerate faces, structured-grid surface folds, enclosed
+%   volume, planform area, and volumetric efficiency.
 
     TR = meshData.TR;
     V = TR.Points;
@@ -42,7 +43,24 @@ function report = verifyWatertight(meshData, cfg)
 
     cross23 = cross(v2 - v1, v3 - v1, 2);
     faceAreas = 0.5 .* sqrt(sum(cross23.^2, 2));
-    numDegenerateFaces = sum(faceAreas < 1e-12);
+    bboxSpan = max(max(V, [], 1) - min(V, [], 1));
+    degAreaTol = max(1e-13, 1e-12 * (bboxSpan^2));
+    numDegenerateFaces = sum(faceAreas < degAreaTol);
+
+    % Check structured-surface spanwise monotonicity & upper/lower non-crossing if surfData is provided
+    hasSurfaceFold = false;
+    if nargin >= 3 && ~isempty(surfData) && isfield(surfData, 'Y_low')
+        if isfield(surfData, 'NxWaverider')
+            nFore = surfData.NxWaverider;
+        else
+            nFore = size(surfData.Y_low, 1);
+        end
+        dY_low = diff(surfData.Y_low(1:nFore, :), 1, 2);
+        dY_up  = diff(surfData.Y_up(1:nFore, :), 1, 2);
+        dzInt  = surfData.Z_up(2:nFore, 2:end-1) - surfData.Z_low(2:nFore, 2:end-1);
+        foldTol = 1e-9 * max(bboxSpan, 1.0);
+        hasSurfaceFold = any(dY_low(:) < -foldTol) || any(dY_up(:) < -foldTol) || any(dzInt(:) < -foldTol);
+    end
 
     tetSignedVols = (1.0 / 6.0) .* sum(v1 .* cross(v2, v3, 2), 2);
     enclosedVolume = sum(tetSignedVols);
@@ -80,10 +98,12 @@ function report = verifyWatertight(meshData, cfg)
                    (numNonManifoldEdges == 0) && ...
                    (numConflictingHalfEdges == 0) && ...
                    (numDegenerateFaces == 0) && ...
+                   (~hasSurfaceFold) && ...
                    (enclosedVolume > 0);
 
     report = struct();
     report.IsWatertight = isWatertight;
+    report.HasSurfaceFold = hasSurfaceFold;
     report.NumVertices = numVertices;
     report.NumEdges = numEdges;
     report.NumFaces = numFaces;

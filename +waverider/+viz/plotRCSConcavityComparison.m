@@ -56,7 +56,7 @@ function [fig, compData] = plotRCSConcavityComparison(baseBody, varargin)
     elSector = repmat(-25.0, size(azSector));
 
     for aIdx = 1:numel(anhedralVec)
-        cfgSweep = waverider.WaveriderConfig.fromPreset('caret');
+        cfgSweep = waverider.WaveriderConfig.fromPreset('osculating_cone');
         cfgSweep.LeadingEdgeAnhedralDeg = anhedralVec(aIdx);
         cfgSweep.NumStreamwise = 40;
         cfgSweep.NumHalfSpan = 28;

@@ -1,21 +1,33 @@
 function rtiData = computeRangeProfile(body, freqGHz, bandwidthMHz, azVecDeg, elDeg, varargin)
-%COMPUTERANGEPROFILE Compute Range-Angle-Intensity (RTI / Sinogram) and High-Resolution Range Profiles.
+%COMPUTERANGEPROFILE Range-Angle-Intensity (RTI / sinogram) & High-Resolution Range Profiles.
 %   rtiData = COMPUTERANGEPROFILE(body, freqGHz, bandwidthMHz, azVecDeg, elDeg, Name, Value)
-%   evaluates the pulse-compressed down-range scattering profile s(R, psi)
-%   of a watertight hypersonic waverider across aspect angles azVecDeg for
-%   a radar waveform with center frequency freqGHz and bandwidth bandwidthMHz.
+%   returns the pulse-compressed down-range profile s(R, psi) of a waverider
+%   for a waveform of centre frequency freqGHz and bandwidth bandwidthMHz.
 %
-%   Waveform & Range Resolution Physics:
-%     - Speed of light: c0 = 299,792,458 m/s
-%     - Unwindowed range resolution: deltaR_m = c0 / (2 * B)
-%     - Down-range coordinate R [m] is referenced to the vehicle axial midpoint
-%       r_ref = [0.5 * L_total, 0, 0]:
-%         * Single-bounce facet f:
-%             R_f(psi) = -(r_f - r_ref) . u_radar(psi, el)
-%         * Concave underside double-bounce pair (P, Q):
-%             R_PQ(psi) = -0.5 * ((r_P + r_Q) - 2*r_ref) . u_radar(psi, el) + 0.5 * d_PQ
-%       Notice the +0.5 * d_PQ extra path delay produced by the internal
-%       reflection across the concave lower compression cavity.
+%   Model (narrowband stepped-frequency / matched-filter equivalent):
+%     Each scattering centre j (every lit PO facet, and every GO-PO
+%     double-bounce overlap patch) has a complex amplitude a_j evaluated at
+%     f_c with exactly the same physics as computeRCS, and an apparent
+%     down-range R_j = (one-way path length) - u . r_ref. The compressed
+%     profile is
+%         s(R) = sum_j a_j * h(R - R_j)
+%     where h is the analytic transform of the spectral window over the band:
+%         rect    : h(x) = sinc(x)                               -3 dB 0.886 dR, PSL -13.3 dB
+%         hann    : h(x) = [0.5 sinc(x) + 0.25 sinc(x-1) + 0.25 sinc(x+1)] / 0.5
+%                                                                  -3 dB 1.44  dR, PSL -31.5 dB
+%         hamming : h(x) = [0.54 sinc(x) + 0.23 sinc(x-1) + 0.23 sinc(x+1)] / 0.54
+%                                                                  -3 dB 1.30  dR, PSL -42.7 dB
+%     with x = (R - R_j) / dR, dR = c / (2 B) and sinc(x) = sin(pi x)/(pi x).
+%     Normalising by the coherent gain makes an isolated scatterer peak at
+%     its own RCS. For point scatterers this is identical to windowing a
+%     stepped-frequency sweep and inverse-Fourier transforming it; it
+%     assumes scattering amplitudes are frequency-independent across the
+%     band, so fractional bandwidths B / f_c above ~20-30% are approximate
+%     and B > f_c is rejected.
+%
+%   Down-range R [m] is referenced to the vehicle axial midpoint r_ref;
+%   negative R is toward the radar. Double-bounce returns appear delayed by
+%   half the extra internal path across the concave underside.
 
     p = inputParser;
     addParameter(p, 'IncludeMultiBounce', true, @islogical);
@@ -26,28 +38,31 @@ function rtiData = computeRangeProfile(body, freqGHz, bandwidthMHz, azVecDeg, el
     opts = p.Results;
 
     c0 = 299792458.0; % [m/s]
-    B_Hz = max(bandwidthMHz, 1.0) * 1e6;
-    f0_Hz = freqGHz * 1e9;
-    lambda0 = c0 / f0_Hz;
+    if bandwidthMHz <= 0
+        error('computeRangeProfile:Bandwidth', 'Bandwidth must be positive.');
+    end
+    if bandwidthMHz > 1000 * freqGHz
+        error('computeRangeProfile:Bandwidth', ...
+            'Bandwidth %.0f MHz exceeds the centre frequency %.2f GHz (band would include f <= 0).', ...
+            bandwidthMHz, freqGHz);
+    end
+    B_Hz = bandwidthMHz * 1e6;
+    lambda0 = c0 / (freqGHz * 1e9);
     k0 = 2.0 * pi / lambda0;
     deltaR_m = c0 / (2.0 * B_Hz);
 
-    % Window broadening factor and sidelobe envelope
     winType = lower(char(opts.WindowType));
     switch winType
-        case 'hann'
-            winBroadening = 1.44;
-            sidelobeDecay = 2.6;
-        case 'hamming'
-            winBroadening = 1.30;
-            sidelobeDecay = 2.1;
-        otherwise % 'rect'
-            winBroadening = 1.00;
-            sidelobeDecay = 0.85;
+        case 'hann',    a0 = 0.50; a1 = 0.25; w3 = 1.44;
+        case 'hamming', a0 = 0.54; a1 = 0.23; w3 = 1.30;
+        case 'rect',    a0 = 1.00; a1 = 0.00; w3 = 0.886;
+        otherwise
+            error('computeRangeProfile:Window', 'WindowType must be rect, hann or hamming.');
     end
-    effectiveDeltaR_m = winBroadening * deltaR_m;
+    effectiveDeltaR_m = w3 * deltaR_m;   % -3 dB mainlobe width
+    psf = @(x) (a0 .* nsinc(x) + a1 .* (nsinc(x - 1) + nsinc(x + 1))) ./ a0;
 
-    % Vehicle geometry & reference center
+    % Geometry & reference centre
     TR = body.MeshData.TR;
     V = TR.Points;
     F = TR.ConnectivityList;
@@ -56,12 +71,6 @@ function rtiData = computeRangeProfile(body, freqGHz, bandwidthMHz, azVecDeg, el
     totalLength = xMax - xMin;
     rRef = [0.5 * (xMin + xMax), 0.0, 0.0];
 
-    % Down-range grid [m] relative to vehicle midpoint
-    maxSpan = max(abs(V(:, 2)));
-    rLim = max(0.68 * totalLength, maxSpan * 1.15) + 1.2;
-    nR = round(opts.NumRangeBins);
-    rangeVec_m = linspace(-rLim, rLim, nR);
-
     v1 = V(F(:, 1), :);
     v2 = V(F(:, 2), :);
     v3 = V(F(:, 3), :);
@@ -69,9 +78,17 @@ function rtiData = computeRangeProfile(body, freqGHz, bandwidthMHz, azVecDeg, el
     crossVec = 0.5 .* cross(v2 - v1, v3 - v1, 2);
     faceAreas = sqrt(sum(crossVec.^2, 2)) + 1e-15;
     faceNormals = crossVec ./ faceAreas;
-    relCenters = faceCenters - rRef;
 
-    % Concave lower-surface pairs for double-bounce range delay
+    % Down-range grid: fine enough to sample the PSF (<= dR/8)
+    maxSpan = max(abs(V(:, 2)));
+    rLim = max(0.6 * totalLength, maxSpan * 1.1) + 4.0 * effectiveDeltaR_m + 0.3;
+    nR = max(round(opts.NumRangeBins), ceil(2 * rLim / (deltaR_m / 8)) + 1);
+    nR = min(nR, 20001);
+    rangeVec_m = linspace(-rLim, rLim, nR);
+    dBin = rangeVec_m(2) - rangeVec_m(1);
+    halfK = ceil(6.0 * deltaR_m / dBin);
+    kern = psf((-halfK:halfK) .* dBin ./ deltaR_m);
+
     if opts.IncludeMultiBounce
         if isempty(opts.PrecomputedConcavePairs)
             concavePairs = waverider.rcs.buildConcavePairList(body);
@@ -89,73 +106,39 @@ function rtiData = computeRangeProfile(body, freqGHz, bandwidthMHz, azVecDeg, el
     RTI_total_m2  = zeros(nAz, nR);
     RTI_single_m2 = zeros(nAz, nR);
     RTI_double_m2 = zeros(nAz, nR);
-
-    % Landmark range tracks across azimuth [nAz x 1]
     R_nose_m = zeros(nAz, 1);
     R_waveriderBase_m = zeros(nAz, 1);
     R_aftBase_m = zeros(nAz, 1);
 
-    prefactor = k0 / sqrt(pi);
-    lobeSharpness = min(max(0.35 * k0, 3.5), 35.0);
-    elecScale = min((1.0 / (0.4 * lambda0)).^0.6, 2.8);
-
     for iAz = 1:nAz
         azRad = deg2rad(azVecDeg(iAz));
-        u = [-cos(elRad) * cos(azRad); ...
-              cos(elRad) * sin(azRad); ...
-              sin(elRad)];
+        u = [-cos(elRad) * cos(azRad), cos(elRad) * sin(azRad), sin(elRad)];
 
-        % Geometric landmark projections along line of sight
-        R_nose_m(iAz)          = -([0.0, 0.0, 0.0] - rRef) * u;
-        R_waveriderBase_m(iAz) = -([body.Config.Length, 0.0, 0.0] - rRef) * u;
-        R_aftBase_m(iAz)       = -([xMax, 0.0, 0.0] - rRef) * u;
+        R_nose_m(iAz)          = -([xMin, 0, 0] - rRef) * u.';
+        R_waveriderBase_m(iAz) = -([body.Config.Length, 0, 0] - rRef) * u.';
+        R_aftBase_m(iAz)       = -([xMax, 0, 0] - rRef) * u.';
 
-        % 1. Single-bounce lit facets
-        cosTh = faceNormals * u;
-        litIdx = find(cosTh > 1e-4);
-        cosLit = cosTh(litIdx);
-        areaLit = faceAreas(litIdx);
-        rDotU_lit = relCenters(litIdx, :) * u;
-        R_lit = -rDotU_lit; % Down-range [m]
+        % 1. Single-bounce PO scattering centres (identical amplitudes to computeRCS)
+        cosTh = faceNormals * u.';
+        lit = find(cosTh > 0);
+        Ilit = waverider.rcs.facetPhaseIntegral(v1(lit, :), v2(lit, :), v3(lit, :), faceNormals(lit, :), 2.0 * k0 .* u);
+        aS = (1i * k0 / sqrt(pi)) .* cosTh(lit) .* Ilit;
+        RS = -(faceCenters(lit, :) - rRef) * u.';
+        profSingle = splatAndCompress(aS, RS, rangeVec_m, kern);
 
-        damp = 1.0 ./ (1.0 + 0.08 .* k0 .* sqrt(areaLit) .* (1.0 - cosLit));
-        ampSingle = (2.0 * prefactor) .* areaLit .* cosLit .* damp .* exp(1i .* (2.0 * k0 .* rDotU_lit));
-
-        % Evaluate band-limited PSF across range bins [nLit x nR]
-        dR_single = (rangeVec_m - R_lit) ./ effectiveDeltaR_m;
-        psfSingle = sinc_rad(pi .* dR_single) ./ (1.0 + (abs(dR_single) ./ sidelobeDecay).^2.5);
-        profSingle = sum(ampSingle .* psfSingle, 1); % [1 x nR]
-
-        % 2. Concave underside double-bounce pairs with +0.5*d_PQ cavity delay
+        % 2. GO-PO concave double-bounce centres with true cavity path delay
         profDouble = zeros(1, nR);
         if opts.IncludeMultiBounce && concavePairs.numPairs > 0
-            cosP = concavePairs.nP * u;
-            cosQ = concavePairs.nQ * u;
-            dDotU = concavePairs.dPQ * u;
-            alignPQ = -dDotU + 2.0 .* cosP .* concavePairs.nP_dot_dPQ;
-            alignQP =  dDotU + 2.0 .* cosQ .* concavePairs.nQ_dot_dQP;
-            alignMax = max(alignPQ, alignQP);
-
-            validMB = find((cosP > 0.02) & (cosQ > 0.02) & (alignMax > 0.62));
-            if ~isempty(validMB)
-                wLobe = exp(-lobeSharpness .* (1.0 - alignMax(validMB)));
-                obliq = sqrt(cosP(validMB) .* cosQ(validMB));
-                rMidRel = 0.5 .* (concavePairs.rP(validMB, :) + concavePairs.rQ(validMB, :)) - rRef;
-                rMidDotU = rMidRel * u;
-                distMB = concavePairs.distPQ(validMB);
-
-                % Apparent monostatic down-range includes +0.5 * distMB cavity bounce delay
-                R_mb = -rMidDotU + 0.5 .* distMB;
-                phaseMB = k0 .* (2.0 .* rMidDotU - distMB);
-                ampMB = (3.2 * prefactor) .* concavePairs.effArea(validMB) .* elecScale .* obliq .* wLobe .* exp(1i .* phaseMB);
-
-                dR_mb = (rangeVec_m - R_mb) ./ effectiveDeltaR_m;
-                psfMB = sinc_rad(pi .* dR_mb) ./ (1.0 + (abs(dR_mb) ./ sidelobeDecay).^2.5);
-                profDouble = sum(ampMB .* psfMB, 1);
+            [~, con] = waverider.rcs.doubleBounceGOPO(concavePairs, u, k0, true);
+            rows = con{1};
+            if ~isempty(rows)
+                aD = rows(:, 1);
+                RD = real(rows(:, 2)) + u * rRef.';
+                profDouble = splatAndCompress(aD, RD, rangeVec_m, kern);
             end
         end
 
-        noiseFloor = 1e-5;
+        noiseFloor = 1e-5;   % -50 dBsm display floor
         RTI_single_m2(iAz, :) = abs(profSingle).^2 + noiseFloor;
         RTI_double_m2(iAz, :) = abs(profDouble).^2 + noiseFloor;
         RTI_total_m2(iAz, :)  = abs(profSingle + profDouble).^2 + noiseFloor;
@@ -164,6 +147,7 @@ function rtiData = computeRangeProfile(body, freqGHz, bandwidthMHz, azVecDeg, el
     rtiData = struct();
     rtiData.freqGHz            = freqGHz;
     rtiData.bandwidthMHz       = bandwidthMHz;
+    rtiData.fractionalBW       = bandwidthMHz / (1000 * freqGHz);
     rtiData.windowType         = winType;
     rtiData.deltaR_m           = deltaR_m;
     rtiData.effectiveDeltaR_m  = effectiveDeltaR_m;
@@ -182,9 +166,23 @@ function rtiData = computeRangeProfile(body, freqGHz, bandwidthMHz, azVecDeg, el
     rtiData.rRef               = rRef;
 end
 
-function y = sinc_rad(x)
-%SINC_RAD Unnormalized sinc function sin(x)/x.
+function prof = splatAndCompress(a, R, rangeVec, kern)
+%SPLATANDCOMPRESS Linear (2-tap) deposition of complex scatterers onto the
+%   fine range grid followed by convolution with the sampled compressed PSF.
+    nR = numel(rangeVec);
+    dBin = rangeVec(2) - rangeVec(1);
+    f = (R - rangeVec(1)) ./ dBin + 1;
+    i0 = floor(f);
+    t = f - i0;
+    ok = i0 >= 1 & i0 < nR;
+    acc = accumarray(i0(ok), a(ok) .* (1 - t(ok)), [nR, 1]) + ...
+          accumarray(i0(ok) + 1, a(ok) .* t(ok), [nR, 1]);
+    prof = conv(acc.', kern, 'same');
+end
+
+function y = nsinc(x)
+%NSINC Normalised sinc sin(pi x)/(pi x).
     y = ones(size(x));
-    nz = abs(x) > 1e-8;
-    y(nz) = sin(x(nz)) ./ x(nz);
+    nz = abs(x) > 1e-12;
+    y(nz) = sin(pi .* x(nz)) ./ (pi .* x(nz));
 end

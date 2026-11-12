@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="dark light" />
+  <title>Verified Technical References — Hypersonic Waverider &amp; RCS Studio</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand-title">
+      <h1>Verified Technical Bibliography &amp; Equation Cross-Reference</h1>
+      <span class="badge-watertight">&#10003; 24 / 24 Citations Primary-Source Verified</span>
+    </div>
+    <div class="header-right">
+      <nav class="header-nav" aria-label="Primary">
+        <a class="nav-link" href="index.html">Interactive Studio</a>
+        <a class="nav-link" href="references.html" aria-current="page">Verified References (24)</a>
+        <a class="nav-link" href="https://github.com/liploan/Hypersonics/tree/main/documentation" target="_blank" rel="noopener noreferrer">Documentation</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="ref-page-main">
+    <section class="ref-hero" aria-labelledby="hero-heading">
+      <h2 id="hero-heading" style="margin:0; font-size:1.08rem;">Primary Literature Supporting Gas Dynamics, Waverider Lofting, Manifold Topology &amp; UHF–X Band Radar Signatures</h2>
+      <p>
+        Every reference below has been individually verified against publisher records, DOI registries, NASA Technical Reports Server (NTRS), and ISBN catalogs. Each entry documents the exact MATLAB (<code>+waverider/</code>) and Web Studio (<code>docs/physics.js</code>) modules and validation benchmarks that implement or test its equations.
+      </p>
+    </section>
+
+    <section class="ref-toolbar" aria-label="Search and filter bibliography">
+      <div class="ref-search-row">
+        <div class="ref-search-group">
+          <label for="ref-search">Search by author, title, DOI, equation topic, or source file</label>
+          <input
+            type="search"
+            id="ref-search"
+            class="ref-search-input"
+            placeholder="e.g. Taylor-Maccoll, Sobieczky, Gordon, Sutherland-Hodgman, Harris, winding number..."
+            autocomplete="off"
+          />
+        </div>
+        <div id="ref-count" class="ref-count-status" role="status">Showing 24 of 24 verified references</div>
+      </div>
+
+      <div class="filter-bar" role="group" aria-label="Filter references by discipline">
+        <button type="button" class="filter-chip" data-filter="all" aria-pressed="true">All Disciplines (24)</button>
+        <button type="button" class="filter-chip" data-filter="gas-dynamics" aria-pressed="false">Gas Dynamics &amp; ODEs (5)</button>
+        <button type="button" class="filter-chip" data-filter="waverider" aria-pressed="false">Waverider &amp; Aero Design (9)</button>
+        <button type="button" class="filter-chip" data-filter="rcs" aria-pressed="false">Electromagnetics &amp; RCS (4)</button>
+        <button type="button" class="filter-chip" data-filter="radar-dsp" aria-pressed="false">Wideband Radar &amp; HRRP (2)</button>
+        <button type="button" class="filter-chip" data-filter="topology" aria-pressed="false">Mesh &amp; Manifold Topology (4)</button>
+      </div>
+    </section>
+
+    <div id="ref-list" class="ref-list"></div>
+  </main>
+
+  <footer class="app-footer">
+    <span>Companion Markdown bibliography available in <code>documentation/REFERENCES.md</code>.</span>
+    <span>
+      <a href="index.html">&larr; Return to Interactive Waverider &amp; RCS Studio</a> &middot;
+      <a href="https://github.com/liploan/Hypersonics" target="_blank" rel="noopener noreferrer">GitHub Repository</a>
+    </span>
+  </footer>
+
+  <script>
+    (function () {
+      "use strict";
+
+      const REFERENCES = [
+        {
+          id: 1,
+          category: "gas-dynamics",
+          categoryLabel: "Gas Dynamics & ODEs",
+          authors: "Ames Research Staff",
+          year: 1953,
+          title: "Equations, Tables, and Charts for Compressible Flow",
+          venue: "NACA Report 1135, Ames Aeronautical Laboratory, Moffett Field, CA",
+          links: [
+            { label: "NASA NTRS 19930091059", url: "https://ntrs.nasa.gov/citations/19930091059" }
+          ],
+          codeRefs: ["+flow/obliqueShock.m", "+flow/taylorMaccoll.m", "docs/physics.js", "tests/test_physics_validation.m"],
+          usage: "Provides exact Rankine–Hugoniot planar oblique-shock relations (θ–β–M deflection, post-shock Mach M2, static pressure ratio p2/p1) and benchmark supersonic conical-shock chart values (e.g., M∞ = 2.0, θc = 20° -> β = 37.80°, matched to 37.796° in Test A4).",
+          bibtex: `@techreport{Ames1953NACA1135,
+  author      = {{Ames Research Staff}},
+  title       = {Equations, Tables, and Charts for Compressible Flow},
+  institution = {National Advisory Committee for Aeronautics},
+  type        = {NACA Report},
+  number      = {1135},
+  address     = {Moffett Field, CA},
+  year        = {1953},
+  url         = {https://ntrs.nasa.gov/citations/19930091059}
+}`
+        },
+        {
+          id: 2,
+          category: "gas-dynamics",
+          categoryLabel: "Gas Dynamics & ODEs",
+          authors: "Taylor, G. I., and Maccoll, J. W.",
+          year: 1933,
+          title: "The Air Pressure on a Cone Moving at High Speeds—I & II",
+          venue: "Proceedings of the Royal Society of London. Series A, Vol. 139, No. 838, pp. 278–311",
+          links: [
+            { label: "DOI: 10.1098/rspa.1933.0017", url: "https://doi.org/10.1098/rspa.1933.0017" },
+            { label: "DOI: 10.1098/rspa.1933.0018", url: "https://doi.org/10.1098/rspa.1933.0018" }
+          ],
+          codeRefs: ["+flow/taylorMaccoll.m", "+flow/traceStreamline.m", "docs/physics.js"],
+          usage: "Formulates the exact axisymmetric irrotational conical-flow ordinary differential equation integrated inward from the attached conical shock (θ = β) to the zero-normal-velocity cone boundary u_θ(θc) = 0, together with streamline tracing dr/dx = u_cyl / u_x.",
+          bibtex: `@article{TaylorMaccoll1933,
+  author  = {Taylor, Geoffrey Ingram and Maccoll, John William},
+  title   = {The Air Pressure on a Cone Moving at High Speeds.---{I}},
+  journal = {Proceedings of the Royal Society of London. Series A},
+  volume  = {139},
+  number  = {838},
+  pages   = {278--299},
+  year    = {1933},
+  doi     = {10.1098/rspa.1933.0017}
+}`
+        },
+        {
+          id: 3,
+          category: "gas-dynamics",
+          categoryLabel: "Gas Dynamics & ODEs",
+          authors: "Anderson, J. D., Jr.",
+          year: 2006,
+          title: "Hypersonic and High-Temperature Gas Dynamics (2nd ed.)",
+          venue: "AIAA Education Series, American Institute of Aeronautics and Astronautics, Reston, VA (ISBN 978-1-56347-780-5)",
+          links: [
+            { label: "DOI: 10.2514/4.861956", url: "https://doi.org/10.2514/4.861956" }
+          ],
+          codeRefs: ["WaveriderBody.m", "+flow/obliqueShock.m", "+geometry/generateCSTBody.m", "docs/physics.js"],
+          usage: "Reference text for nondimensional adiabatic limit speed V_bar, hypersonic waverider inverse design principles, Rayleigh pitot stagnation pressure coefficient C_p,max, Prandtl–Meyer leeward expansion estimates, and hypersonic base-pressure correlation C_p,base = -1/(γ M∞²).",
+          bibtex: `@book{Anderson2006Hypersonic,
+  author    = {Anderson, John D., Jr.},
+  title     = {Hypersonic and High-Temperature Gas Dynamics},
+  edition   = {2nd},
+  series    = {AIAA Education Series},
+  publisher = {American Institute of Aeronautics and Astronautics},
+  address   = {Reston, VA},
+  year      = {2006},
+  isbn      = {978-1-56347-780-5},
+  doi       = {10.2514/4.861956}
+}`
+        },
+        {
+          id: 4,
+          category: "gas-dynamics",
+          categoryLabel: "Gas Dynamics & ODEs",
+          authors: "Dormand, J. R., and Prince, P. J.",
+          year: 1980,
+          title: "A family of embedded Runge-Kutta formulae",
+          venue: "Journal of Computational and Applied Mathematics, Vol. 6, No. 1, pp. 19–26",
+          links: [
+            { label: "DOI: 10.1016/0771-050X(80)90013-3", url: "https://doi.org/10.1016/0771-050X(80)90013-3" }
+          ],
+          codeRefs: ["+flow/taylorMaccoll.m"],
+          usage: "Defines the RK5(4)7M embedded Runge–Kutta pair underlying MATLAB's ode45 solver, integrated in +flow/taylorMaccoll.m with RelTol = 1e-10 and AbsTol = 1e-12 to achieve < 1e-7 deg cone-angle precision.",
+          bibtex: `@article{DormandPrince1980,
+  author  = {Dormand, J. R. and Prince, P. J.},
+  title   = {A family of embedded {Runge-Kutta} formulae},
+  journal = {Journal of Computational and Applied Mathematics},
+  volume  = {6},
+  number  = {1},
+  pages   = {19--26},
+  year    = {1980},
+  doi     = {10.1016/0771-050X(80)90013-3}
+}`
+        },
+        {
+          id: 5,
+          category: "gas-dynamics",
+          categoryLabel: "Gas Dynamics & ODEs",
+          authors: "Shampine, L. F., and Reichelt, M. W.",
+          year: 1997,
+          title: "The MATLAB ODE Suite",
+          venue: "SIAM Journal on Scientific Computing, Vol. 18, No. 1, pp. 1–22",
+          links: [
+            { label: "DOI: 10.1137/S1064827594276424", url: "https://doi.org/10.1137/S1064827594276424" }
+          ],
+          codeRefs: ["+flow/taylorMaccoll.m", "docs/physics.js"],
+          usage: "Documents continuous extension and zero-crossing event location in MATLAB ode45 (Events = @coneSurfaceEvent) for locating u_θ(θc) = 0; mirrored in docs/physics.js via RK4 + 4-iteration cubic Hermite Newton root refinement.",
+          bibtex: `@article{ShampineReichelt1997,
+  author  = {Shampine, Lawrence F. and Reichelt, Mark W.},
+  title   = {The {MATLAB ODE} Suite},
+  journal = {SIAM Journal on Scientific Computing},
+  volume  = {18},
+  number  = {1},
+  pages   = {1--22},
+  year    = {1997},
+  doi     = {10.1137/S1064827594276424}
+}`
+        },
+        {
+          id: 6,
+          category: "waverider",
+          categoryLabel: "Waverider & Aero Design",
+          authors: "Nonweiler, T. R. F.",
+          year: 1959,
+          title: "Aerodynamic Problems of Manned Space Vehicles (1959) & Delta Wings of Shapes Amenable to Exact Shock-Wave Theory (1963)",
+          venue: "Journal of the Royal Aeronautical Society, Vol. 63, No. 585, Sept. 1959, pp. 521–528; and Vol. 67, No. 625, Jan. 1963, pp. 39–40",
+          links: [
+            { label: "DOI (1963): 10.1017/S0368393100090027", url: "https://doi.org/10.1017/S0368393100090027" }
+          ],
+          codeRefs: ["+geometry/generateCaretWedge.m", "docs/physics.js", "tests/test_physics_validation.m"],
+          usage: "Introduces the planar-shock 'caret' (inverted-V) waverider whose lower compression panels sustain uniform 2D oblique-shock pressure Cp2, yielding exact inviscid C_L = Cp2, C_D,w = Cp2 tan(δ), and L/D = cot(δ) (verified to < 1e-13 relative error in Test E1).",
+          bibtex: `@article{Nonweiler1959,
+  author  = {Nonweiler, Terence R. F.},
+  title   = {Aerodynamic Problems of Manned Space Vehicles},
+  journal = {Journal of the Royal Aeronautical Society},
+  volume  = {63},
+  number  = {585},
+  pages   = {521--528},
+  year    = {1959}
+}
+
+@article{Nonweiler1963Caret,
+  author  = {Nonweiler, Terence},
+  title   = {Delta Wings of Shapes Amenable to Exact Shock-Wave Theory},
+  journal = {Journal of the Royal Aeronautical Society},
+  volume  = {67},
+  number  = {625},
+  pages   = {39--40},
+  year    = {1963},
+  doi     = {10.1017/S0368393100090027}
+}`
+        },
+        {
+          id: 7,
+          category: "waverider",
+          categoryLabel: "Waverider & Aero Design",
+          authors: "Jones, J. G., Moore, K. C., Pike, J., and Roe, P. L.",
+          year: 1968,
+          title: "A method for designing lifting configurations for high supersonic speeds, using axisymmetric flow fields",
+          venue: "Ingenieur-Archiv (Archive of Applied Mechanics), Vol. 37, No. 1, pp. 56–72",
+          links: [
+            { label: "DOI: 10.1007/BF00532683", url: "https://doi.org/10.1007/BF00532683" }
+          ],
+          codeRefs: ["+geometry/generateOsculatingCone.m", "+flow/traceStreamline.m", "docs/physics.js"],
+          usage: "Establishes inverse streamline carving from a single axisymmetric conical shock sheet: each leading-edge point (X_LE, Y_LE, Z_LE) lies strictly on the generating shock cone R_s(X) = (X + x0) tan(β) and is integrated aft in its meridian plane.",
+          bibtex: `@article{JonesMoorePikeRoe1968,
+  author  = {Jones, J. G. and Moore, K. C. and Pike, J. and Roe, P. L.},
+  title   = {A method for designing lifting configurations for high supersonic speeds, using axisymmetric flow fields},
+  journal = {Ingenieur-Archiv},
+  volume  = {37},
+  number  = {1},
+  pages   = {56--72},
+  year    = {1968},
+  doi     = {10.1007/BF00532683}
+}`
+        },
+        {
+          id: 8,
+          category: "waverider",
+          categoryLabel: "Waverider & Aero Design",
+          authors: "Rasmussen, M. L.",
+          year: 1980,
+          title: "Waverider Configurations Derived from Inclined Circular and Elliptic Cones",
+          venue: "Journal of Spacecraft and Rockets, Vol. 17, No. 6, pp. 537–545",
+          links: [
+            { label: "DOI: 10.2514/3.57771", url: "https://doi.org/10.2514/3.57771" }
+          ],
+          codeRefs: ["+geometry/generateOsculatingCone.m", "docs/physics.js"],
+          usage: "Extends conical flowfield waverider generation and geometric volume-efficiency scaling for cone-derived lifting bodies; implemented in the 'conical' family with apex offset selection that guarantees real shock-cone intersection across the entire span.",
+          bibtex: `@article{Rasmussen1980,
+  author  = {Rasmussen, Maurice L.},
+  title   = {Waverider Configurations Derived from Inclined Circular and Elliptic Cones},
+  journal = {Journal of Spacecraft and Rockets},
+  volume  = {17},
+  number  = {6},
+  pages   = {537--545},
+  year    = {1980},
+  doi     = {10.2514/3.57771}
+}`
+        },
+        {
+          id: 9,
+          category: "waverider",
+          categoryLabel: "Waverider & Aero Design",
+          authors: "Bowcutt, K. G., Anderson, J. D., Jr., and Capriotti, D. P.",
+          year: 1987,
+          title: "Viscous Optimized Hypersonic Waveriders",
+          venue: "AIAA Paper 87-0272, 25th AIAA Aerospace Sciences Meeting, Reno, NV",
+          links: [
+            { label: "DOI: 10.2514/6.1987-272", url: "https://doi.org/10.2514/6.1987-272" }
+          ],
+          codeRefs: ["WaveriderConfig.m", "WaveriderBody.m", "+viz/plotTradeSpace.m", "examples/demo_parametric_sweep.m"],
+          usage: "Demonstrates that inviscid L/D diverges for ultra-slender waveriders while skin friction penalizes excessive wetted area, motivating power-law planform leading edges Y_LE = (b/2)(X/L)^P and viscous L/D trade-space optimization via Eckert's reference temperature.",
+          bibtex: `@inproceedings{BowcuttAndersonCapriotti1987,
+  author    = {Bowcutt, Kevin G. and Anderson, John D., Jr. and Capriotti, Diego P.},
+  title     = {Viscous Optimized Hypersonic Waveriders},
+  booktitle = {25th AIAA Aerospace Sciences Meeting},
+  series    = {AIAA Paper},
+  number    = {87-0272},
+  address   = {Reno, NV},
+  year      = {1987},
+  doi       = {10.2514/6.1987-272}
+}`
+        },
+        {
+          id: 10,
+          category: "waverider",
+          categoryLabel: "Waverider & Aero Design",
+          authors: "Sobieczky, H., Dougherty, F. C., and Jones, K. D.",
+          year: 1990,
+          title: "Hypersonic Waverider Design from Given Shock Waves",
+          venue: "Proceedings of the First International Hypersonic Waverider Symposium, University of Maryland, College Park, MD, Oct. 17–19, 1990",
+          links: [],
+          codeRefs: ["+geometry/generateOsculatingCone.m", "docs/physics.js"],
+          usage: "Pioneers the inverse osculating-cones method: a prescribed aft Inlet Capture Curve (ICC) shock trace Z_s(Y) at X = L defines local curvature κ(Y), center of curvature C(Y) = r_s + R_c n_s, and local Taylor–Maccoll streamline tracing in each osculating plane, guarded against evolute caustic crossing via d_LE <= 0.82 R_c.",
+          bibtex: `@inproceedings{Sobieczky1990Osculating,
+  author    = {Sobieczky, Helmut and Dougherty, F. Carroll and Jones, Kevin D.},
+  title     = {Hypersonic Waverider Design from Given Shock Waves},
+  booktitle = {Proceedings of the First International Hypersonic Waverider Symposium},
+  address   = {University of Maryland, College Park, MD},
+  month     = oct,
+  year      = {1990}
+}`
+        },
+        {
+          id: 11,
+          category: "waverider",
+          categoryLabel: "Waverider & Aero Design",
+          authors: "Kulfan, B. M.",
+          year: 2008,
+          title: "Universal Parametric Geometry Representation Method",
+          venue: "Journal of Aircraft, Vol. 45, No. 1, pp. 142–158",
+          links: [
+            { label: "DOI: 10.2514/1.29958", url: "https://doi.org/10.2514/1.29958" }
+          ],
+          codeRefs: ["+geometry/generateCSTBody.m", "docs/physics.js"],
+          usage: "Defines the Class-Function / Shape-Function Transformation (CST) method using Bernstein polynomial basis weights and class exponents (N1, N2) to loft smooth boost-glide dorsal canopies and ventral compression arches in the 'cst' waverider family.",
+          bibtex: `@article{Kulfan2008CST,
+  author  = {Kulfan, Brenda M.},
+  title   = {Universal Parametric Geometry Representation Method},
+  journal = {Journal of Aircraft},
+  volume  = {45},
+  number  = {1},
+  pages   = {142--158},
+  year    = {2008},
+  doi     = {10.2514/1.29958}
+}`
+        },
+        {
+          id: 12,
+          category: "waverider",
+          categoryLabel: "Waverider & Aero Design",
+          authors: "Ding, F., Liu, J., Shen, C.-b., Liu, Z., Chen, S., and Huang, W.",
+          year: 2018,
+          title: "An overview of waverider design concept in airframe/inlet integration methodology for air-breathing hypersonic vehicles",
+          venue: "Acta Astronautica, Vol. 152, pp. 639–656",
+          links: [
+            { label: "DOI: 10.1016/j.actaastro.2018.09.002", url: "https://doi.org/10.1016/j.actaastro.2018.09.002" }
+          ],
+          codeRefs: ["+geometry/generateOsculatingCone.m", "+geometry/appendConformalFrustum.m"],
+          usage: "Synthesizes modern osculating-cone ICC flat-centerbody + curved-outer-wing shock parameterizations (with C² curvature transition regularization) and airframe-to-propulsion/booster aft cross-sectional transition integration.",
+          bibtex: `@article{Ding2018WaveriderReview,
+  author  = {Ding, Feng and Liu, Jun and Shen, Chi-bing and Liu, Zhen and Chen, Shaohua and Huang, Wei},
+  title   = {An overview of waverider design concept in airframe/inlet integration methodology for air-breathing hypersonic vehicles},
+  journal = {Acta Astronautica},
+  volume  = {152},
+  pages   = {639--656},
+  year    = {2018},
+  doi     = {10.1016/j.actaastro.2018.09.002}
+}`
+        },
+        {
+          id: 13,
+          category: "waverider",
+          categoryLabel: "Waverider & Aero Design",
+          authors: "Lees, L.",
+          year: 1956,
+          title: "Laminar Heat Transfer Over Blunt-Nosed Bodies at Hypersonic Flight Speeds",
+          venue: "Jet Propulsion, Vol. 26, No. 4, pp. 259–269",
+          links: [
+            { label: "DOI: 10.2514/8.6977", url: "https://doi.org/10.2514/8.6977" }
+          ],
+          codeRefs: ["WaveriderBody.m", "+geometry/generateCSTBody.m", "docs/physics.js"],
+          usage: "Introduces modified Newtonian impact theory C_p = C_p,max sin²(θ_impact) using exact normal-shock Rayleigh pitot stagnation pressure C_p,max; used directly on CST/frustum windward facets and calibrated per facet (k_f = C_p,design / (C_p,max sin²θ_0)) for off-design angle-of-attack polars.",
+          bibtex: `@article{Lees1956ModifiedNewtonian,
+  author  = {Lees, Lester},
+  title   = {Laminar Heat Transfer Over Blunt-Nosed Bodies at Hypersonic Flight Speeds},
+  journal = {Jet Propulsion},
+  volume  = {26},
+  number  = {4},
+  pages   = {259--269},
+  year    = {1956},
+  doi     = {10.2514/8.6977}
+}`
+        },
+        {
+          id: 14,
+          category: "waverider",
+          categoryLabel: "Waverider & Aero Design",
+          authors: "Eckert, E. R. G.",
+          year: 1955,
+          title: "Engineering Relations for Friction and Heat Transfer to Surfaces in High Velocity Flow",
+          venue: "Journal of the Aeronautical Sciences, Vol. 22, No. 8, pp. 585–587",
+          links: [],
+          codeRefs: ["WaveriderBody.m", "docs/physics.js"],
+          usage: "Establishes the compressible reference-temperature relation T*/T∞ = 0.5(1 + T_w/T∞) + 0.22 r ((γ-1)/2) M∞² used with Sutherland viscosity at 30 km standard atmosphere and turbulent Prandtl–Schlichting skin friction to compute C_D,friction and viscous (L/D)_visc.",
+          bibtex: `@article{Eckert1955ReferenceTemp,
+  author  = {Eckert, Ernst R. G.},
+  title   = {Engineering Relations for Friction and Heat Transfer to Surfaces in High Velocity Flow},
+  journal = {Journal of the Aeronautical Sciences},
+  volume  = {22},
+  number  = {8},
+  pages   = {585--587},
+  year    = {1955}
+}`
+        },
+        {
+          id: 15,
+          category: "rcs",
+          categoryLabel: "Electromagnetics & RCS",
+          authors: "Gordon, W. B.",
+          year: 1975,
+          title: "Far-Field Approximations to the Kirchhoff-Helmholtz Representations of Scattered Fields",
+          venue: "IEEE Transactions on Antennas and Propagation, Vol. 23, No. 4, pp. 590–592",
+          links: [
+            { label: "DOI: 10.1109/TAP.1975.1141105", url: "https://doi.org/10.1109/TAP.1975.1141105" }
+          ],
+          codeRefs: ["+rcs/facetPhaseIntegral.m", "+rcs/doubleBounceGOPO.m", "+rcs/computeRCS.m", "docs/physics.js"],
+          usage: "Reduces the 2D surface phase integral ∬_P exp(i w·r) dA over an arbitrary planar polygon P to an exact closed-form contour sum over its edges with zero mesh-density-dependent damping factors, reproducing exact sinc² sidelobes on electrically large facets (33λ plate error 0.00 dB in Test C2).",
+          bibtex: `@article{Gordon1975PO,
+  author  = {Gordon, William B.},
+  title   = {Far-Field Approximations to the {Kirchhoff-Helmholtz} Representations of Scattered Fields},
+  journal = {IEEE Transactions on Antennas and Propagation},
+  volume  = {23},
+  number  = {4},
+  pages   = {590--592},
+  year    = {1975},
+  doi     = {10.1109/TAP.1975.1141105}
+}`
+        },
+        {
+          id: 16,
+          category: "rcs",
+          categoryLabel: "Electromagnetics & RCS",
+          authors: "Ling, H., Chou, R.-C., and Lee, S.-W.",
+          year: 1989,
+          title: "Shooting and Bouncing Rays: Calculating the RCS of an Arbitrarily Shaped Cavity",
+          venue: "IEEE Transactions on Antennas and Propagation, Vol. 37, No. 2, pp. 194–205",
+          links: [
+            { label: "DOI: 10.1109/8.18706", url: "https://doi.org/10.1109/8.18706" }
+          ],
+          codeRefs: ["+rcs/doubleBounceGOPO.m", "+rcs/buildConcavePairList.m", "docs/physics.js"],
+          usage: "Provides the Geometric-Optics / Physical-Optics (GO-PO / SBR) exit-aperture formulation for cavity multi-bounce scattering: ray tubes reflected from primary panel P along k_r = k_i - 2(n_P·k_i)n_P illuminate secondary panel Q and are integrated coherently with exact unfolded two-way path phase.",
+          bibtex: `@article{LingChouLee1989SBR,
+  author  = {Ling, Hao and Chou, Ri-Chee and Lee, Shung-Wu},
+  title   = {Shooting and Bouncing Rays: Calculating the {RCS} of an Arbitrarily Shaped Cavity},
+  journal = {IEEE Transactions on Antennas and Propagation},
+  volume  = {37},
+  number  = {2},
+  pages   = {194--205},
+  year    = {1989},
+  doi     = {10.1109/8.18706}
+}`
+        },
+        {
+          id: 17,
+          category: "rcs",
+          categoryLabel: "Electromagnetics & RCS",
+          authors: "Knott, E. F., Shaeffer, J. F., and Tuley, M. T.",
+          year: 2004,
+          title: "Radar Cross Section (2nd ed.)",
+          venue: "SciTech Publishing, Raleigh, NC (ISBN 978-1-891121-25-8)",
+          links: [],
+          codeRefs: ["+rcs/computeRCS.m", "+rcs/doubleBounceGOPO.m", "tests/test_physics_validation.m", "tests/web/validate_physics.mjs"],
+          usage: "Supplies the canonical closed-form RCS benchmarks enforced in Tests C1–C5: flat rectangular PEC plate σ = (4πA²/λ²)cos²θ sinc²(ka sinθ), high-frequency PEC sphere σ = πa², and 90° dihedral corner reflector σ = (16πa²b²/λ²)sin²(2φ) (matched within 0.03–0.08 dB).",
+          bibtex: `@book{Knott2004RCS,
+  author    = {Knott, Eugene F. and Shaeffer, John F. and Tuley, Michael T.},
+  title     = {Radar Cross Section},
+  edition   = {2nd},
+  publisher = {SciTech Publishing},
+  address   = {Raleigh, NC},
+  year      = {2004},
+  isbn      = {978-1-891121-25-8}
+}`
+        },
+        {
+          id: 18,
+          category: "rcs",
+          categoryLabel: "Electromagnetics & RCS",
+          authors: "Ufimtsev, P. Ya.",
+          year: 2014,
+          title: "Fundamentals of the Physical Theory of Diffraction (2nd ed.)",
+          venue: "Wiley-IEEE Press, Hoboken, NJ (ISBN 978-1-118-75366-8)",
+          links: [
+            { label: "DOI: 10.1002/9781118753767", url: "https://doi.org/10.1002/9781118753767" }
+          ],
+          codeRefs: ["+rcs/computeRCS.m"],
+          usage: "Theoretical basis for fringe-current wedge diffraction along sharp leading-edge and trailing-edge discontinuities; informs the stationary-phase edge-diffraction estimate in +rcs/computeRCS.m (IncludeEdgeDiffraction).",
+          bibtex: `@book{Ufimtsev2014PTD,
+  author    = {Ufimtsev, Pyotr Ya.},
+  title     = {Fundamentals of the Physical Theory of Diffraction},
+  edition   = {2nd},
+  publisher = {Wiley-IEEE Press},
+  address   = {Hoboken, NJ},
+  year      = {2014},
+  isbn      = {978-1-118-75366-8},
+  doi       = {10.1002/9781118753767}
+}`
+        },
+        {
+          id: 19,
+          category: "radar-dsp",
+          categoryLabel: "Wideband Radar & HRRP",
+          authors: "Harris, F. J.",
+          year: 1978,
+          title: "On the Use of Windows for Harmonic Analysis with the Discrete Fourier Transform",
+          venue: "Proceedings of the IEEE, Vol. 66, No. 1, pp. 51–83",
+          links: [
+            { label: "DOI: 10.1109/PROC.1978.10837", url: "https://doi.org/10.1109/PROC.1978.10837" }
+          ],
+          codeRefs: ["+rcs/computeRangeProfile.m", "docs/physics.js", "tests/test_physics_validation.m"],
+          usage: "Gives exact analytical point-spread functions W(R) = [a0 sinc(x) + a1(sinc(x-1) + sinc(x+1))]/a0 (x = R/ΔR), -3 dB mainlobe broadening factors (0.886 rect, 1.44 Hann, 1.30 Hamming), and peak sidelobe levels (-13.26 dB rect, -31.5 dB Hann, -42.7 dB Hamming) verified in Tests D1–D3.",
+          bibtex: `@article{Harris1978Windows,
+  author  = {Harris, Fredric J.},
+  title   = {On the Use of Windows for Harmonic Analysis with the Discrete {Fourier} Transform},
+  journal = {Proceedings of the IEEE},
+  volume  = {66},
+  number  = {1},
+  pages   = {51--83},
+  year    = {1978},
+  doi     = {10.1109/PROC.1978.10837}
+}`
+        },
+        {
+          id: 20,
+          category: "radar-dsp",
+          categoryLabel: "Wideband Radar & HRRP",
+          authors: "Wehner, D. R.",
+          year: 1995,
+          title: "High-Resolution Radar (2nd ed.)",
+          venue: "Artech House, Norwood, MA (ISBN 978-0-89006-727-7)",
+          links: [],
+          codeRefs: ["+rcs/computeRangeProfile.m", "+viz/plotRangeAngleIntensity.m", "docs/physics.js"],
+          usage: "Derives stepped-frequency / matched-filter LFM down-range resolution ΔR = c / (2B), Range–Angle–Intensity (RTI) sinogram trajectories of point/edge scatterers, and delayed cavity multi-bounce range migration (+0.5 d_PQ).",
+          bibtex: `@book{Wehner1995HRR,
+  author    = {Wehner, Donald R.},
+  title     = {High-Resolution Radar},
+  edition   = {2nd},
+  publisher = {Artech House},
+  address   = {Norwood, MA},
+  year      = {1995},
+  isbn      = {978-0-89006-727-7}
+}`
+        },
+        {
+          id: 21,
+          category: "topology",
+          categoryLabel: "Mesh & Manifold Topology",
+          authors: "Sutherland, I. E., and Hodgman, G. W.",
+          year: 1974,
+          title: "Reentrant Polygon Clipping",
+          venue: "Communications of the ACM, Vol. 17, No. 1, pp. 32–42",
+          links: [
+            { label: "DOI: 10.1145/360767.360802", url: "https://doi.org/10.1145/360767.360802" }
+          ],
+          codeRefs: ["+rcs/doubleBounceGOPO.m", "docs/physics.js"],
+          usage: "Clips each reflected quad beam footprint from primary facet P against the four inward half-planes of secondary facet Q on the concave underside to obtain the exact convex illuminated polygon Ω_PQ before Gordon contour integration.",
+          bibtex: `@article{SutherlandHodgman1974,
+  author  = {Sutherland, Ivan E. and Hodgman, Gary W.},
+  title   = {Reentrant Polygon Clipping},
+  journal = {Communications of the ACM},
+  volume  = {17},
+  number  = {1},
+  pages   = {32--42},
+  year    = {1974},
+  doi     = {10.1145/360767.360802}
+}`
+        },
+        {
+          id: 22,
+          category: "topology",
+          categoryLabel: "Mesh & Manifold Topology",
+          authors: "van Oosterom, A., and Strackee, J.",
+          year: 1983,
+          title: "The Solid Angle of a Plane Triangle",
+          venue: "IEEE Transactions on Biomedical Engineering, Vol. BME-30, No. 2, pp. 125–126",
+          links: [
+            { label: "DOI: 10.1109/TBME.1983.325207", url: "https://doi.org/10.1109/TBME.1983.325207" }
+          ],
+          codeRefs: ["tests/test_physics_validation.m", "docs/physics.js", "tests/web/validate_physics.mjs"],
+          usage: "Provides the exact non-singular two-argument arctangent formula tan(Ω/2) = det(a,b,c) / (|a||b||c| + (a·b)|c| + (b·c)|a| + (c·a)|b|) used to sum signed solid angles over all mesh triangles.",
+          bibtex: `@article{vanOosteromStrackee1983,
+  author  = {van Oosterom, Adriaan and Strackee, J.},
+  title   = {The Solid Angle of a Plane Triangle},
+  journal = {IEEE Transactions on Biomedical Engineering},
+  volume  = {BME-30},
+  number  = {2},
+  pages   = {125--126},
+  year    = {1983},
+  doi     = {10.1109/TBME.1983.325207}
+}`
+        },
+        {
+          id: 23,
+          category: "topology",
+          categoryLabel: "Mesh & Manifold Topology",
+          authors: "Jacobson, A., Kavan, L., and Sorkine-Hornung, O.",
+          year: 2013,
+          title: "Robust Inside-Outside Segmentation using Generalized Winding Numbers",
+          venue: "ACM Transactions on Graphics, Vol. 32, No. 4 (SIGGRAPH 2013), Article 33",
+          links: [
+            { label: "DOI: 10.1145/2461912.2461916", url: "https://doi.org/10.1145/2461912.2461916" }
+          ],
+          codeRefs: ["tests/test_physics_validation.m", "docs/physics.js", "tests/web/validate_physics.mjs"],
+          usage: "Establishes that a closed, outward-oriented, self-intersection-free 2-manifold satisfies W(q) = (1/4π) Σ Ω_f(q) ∈ {0, 1} everywhere in R³ \\ ∂M (taking values 2, -1, or fractional if surfaces fold or self-intersect); verified across all 42 configurations in Test B2 (worst |W - {0,1}| = 0.000).",
+          bibtex: `@article{Jacobson2013Winding,
+  author  = {Jacobson, Alec and Kavan, Ladislav and Sorkine-Hornung, Olga},
+  title   = {Robust Inside-Outside Segmentation using Generalized Winding Numbers},
+  journal = {ACM Transactions on Graphics},
+  volume  = {32},
+  number  = {4},
+  articleno = {33},
+  pages   = {33:1--33:12},
+  year    = {2013},
+  doi     = {10.1145/2461912.2461916}
+}`
+        },
+        {
+          id: 24,
+          category: "topology",
+          categoryLabel: "Mesh & Manifold Topology",
+          authors: "Zhang, C., and Chen, T.",
+          year: 2001,
+          title: "Efficient Feature Extraction for 2D/3D Objects in Mesh Representation",
+          venue: "Proceedings 2001 International Conference on Image Processing (ICIP), Vol. 3, pp. 935–938",
+          links: [
+            { label: "DOI: 10.1109/ICIP.2001.958278", url: "https://doi.org/10.1109/ICIP.2001.958278" }
+          ],
+          codeRefs: ["+mesh/verifyWatertight.m", "docs/physics.js", "tests/test_physics_validation.m"],
+          usage: "Derives exact Divergence-Theorem signed tetrahedral enclosed volume V = (1/6) Σ v1·(v2×v3) and volumetric centroid c_V = Σ ((v1+v2+v3)/4) V_tet / V; cross-checked against independent Monte-Carlo winding-number volume integration in Test B5.",
+          bibtex: `@inproceedings{ZhangChen2001MeshMoments,
+  author    = {Zhang, Cha and Chen, Tsuhan},
+  title     = {Efficient Feature Extraction for {2D/3D} Objects in Mesh Representation},
+  booktitle = {Proceedings 2001 International Conference on Image Processing (ICIP)},
+  volume    = {3},
+  pages     = {935--938},
+  year      = {2001},
+  doi       = {10.1109/ICIP.2001.958278}
+}`
+        }
+      ];
+
+      function escapeHtml(str) {
+        return String(str)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
+      }
+
+      const listEl = document.getElementById("ref-list");
+      listEl.innerHTML = REFERENCES.map((ref) => {
+        const bibId = `bib-entry-${ref.id}`;
+        const linksHtml = ref.links
+          .map(
+            (lnk) =>
+              `<a class="ref-ext-link" href="${escapeHtml(lnk.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(lnk.label)} &nearr;</a>`
+          )
+          .join("");
+        const chipsHtml = ref.codeRefs
+          .map((c) => `<span class="ref-code-chip">${escapeHtml(c)}</span>`)
+          .join("");
+
+        return `
+          <article class="ref-card" data-category="${escapeHtml(ref.category)}" data-search="${escapeHtml(
+            [ref.authors, ref.year, ref.title, ref.venue, ref.usage, ref.codeRefs.join(" "), ref.links.map((l) => l.label).join(" ")].join(" ").toLowerCase()
+          )}">
+            <div class="ref-card-header">
+              <div class="ref-header-left">
+                <span class="ref-num">[${ref.id}]</span>
+                <span class="ref-category-tag">${escapeHtml(ref.categoryLabel)}</span>
+              </div>
+              <div class="ref-links">
+                ${linksHtml}
+                <span class="copy">
+                  <button type="button" class="copy-button" command="--copy" commandfor="${bibId}">Copy BibTeX</button>
+                  <span class="tip" role="status"></span>
+                </span>
+              </div>
+            </div>
+            <h3 class="ref-title">${escapeHtml(ref.title)}</h3>
+            <p class="ref-citation"><strong>${escapeHtml(ref.authors)} (${ref.year}).</strong> ${escapeHtml(ref.venue)}.</p>
+            <p class="ref-usage-note">${escapeHtml(ref.usage)}</p>
+            <div class="ref-meta-row">
+              <div class="ref-code-chips" aria-label="Source code cross-references">${chipsHtml}</div>
+            </div>
+            <details class="ref-bibtex">
+              <summary>View BibTeX Entry</summary>
+              <pre class="code-block" id="${bibId}">${escapeHtml(ref.bibtex)}</pre>
+            </details>
+          </article>
+        `;
+      }).join("");
+
+      // Filter & Search Logic
+      let activeCategory = "all";
+      const searchInput = document.getElementById("ref-search");
+      const countEl = document.getElementById("ref-count");
+      const cards = Array.from(listEl.querySelectorAll(".ref-card"));
+      const filterBtns = Array.from(document.querySelectorAll(".filter-chip"));
+
+      function applyFilters() {
+        const q = searchInput.value.trim().toLowerCase();
+        let shown = 0;
+        for (const card of cards) {
+          const catOk = activeCategory === "all" || card.dataset.category === activeCategory;
+          const qOk = !q || card.dataset.search.includes(q);
+          const match = catOk && qOk;
+          card.hidden = !match;
+          if (match) shown++;
+        }
+        countEl.textContent = `Showing ${shown} of ${cards.length} verified references`;
+      }
+
+      searchInput.addEventListener("input", applyFilters);
+      for (const btn of filterBtns) {
+        btn.addEventListener("click", () => {
+          activeCategory = btn.dataset.filter;
+          for (const b of filterBtns) {
+            b.setAttribute("aria-pressed", String(b === btn));
+          }
+          applyFilters();
+        });
+      }
+
+      // Accessible Copy Button Handler (modern-web-guidance 'copy-button')
+      const copyTimers = new WeakMap();
+      let lastMsg = "";
+
+      async function performCopy(btn, targetEl) {
+        if (!btn || !targetEl) return;
+        const tip = btn.nextElementSibling;
+        const text = "value" in targetEl ? targetEl.value : targetEl.textContent;
+        let ok = false;
+        try {
+          await navigator.clipboard.writeText(text);
+          ok = true;
+        } catch {
+          ok = false;
+        }
+
+        clearTimeout(copyTimers.get(btn));
+        delete btn.dataset.copied;
+        delete btn.dataset.failed;
+        btn.dataset[ok ? "copied" : "failed"] = "";
+
+        if (tip) {
+          let msg = ok ? "Copied BibTeX!" : "Copy failed";
+          if (msg === lastMsg) msg += "\u00A0";
+          lastMsg = msg;
+          tip.textContent = msg;
+        }
+
+        copyTimers.set(
+          btn,
+          setTimeout(() => {
+            delete btn.dataset.copied;
+            delete btn.dataset.failed;
+            if (tip) tip.textContent = "";
+          }, 2000)
+        );
+      }
+
+      if ("CommandEvent" in window) {
+        document.addEventListener(
+          "command",
+          (e) => {
+            if (e.command === "--copy") {
+              performCopy(e.source, e.target);
+            }
+          },
+          true
+        );
+      } else {
+        document.addEventListener("click", (e) => {
+          const btn = e.target.closest('button[command="--copy"]');
+          if (!btn) return;
+          const id = btn.getAttribute("commandfor");
+          const targetEl = id ? document.getElementById(id) : null;
+          performCopy(btn, targetEl);
+        });
+      }
+    })();
+  </script>
+</body>
+</html>

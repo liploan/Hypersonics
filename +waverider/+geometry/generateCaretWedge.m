@@ -27,9 +27,10 @@ function surfData = generateCaretWedge(cfg)
     xLE(Ny) = L;
     xLE(cfg.NumHalfSpan) = 0.0;
 
-    % Caret leading edge lies on the oblique shock sheet with optional spanwise anhedral
-    anhedralRad = deg2rad(cfg.LeadingEdgeAnhedralDeg);
-    zLE = -xLE .* tanBeta - abs(yLE) .* tan(anhedralRad);
+    % Exact Nonweiler leading edge lies strictly on the planar oblique shock z = -x tan(beta).
+    % Note: Front-view leading-edge anhedral is determined geometrically by the shock-planform
+    % intersection: tan(Gamma_tip) = (L * tan(beta)) / HalfSpan.
+    zLE = -xLE .* tanBeta;
     zLE(cfg.NumHalfSpan) = 0.0;
 
     % Streamwise grid from xLE(k) to L

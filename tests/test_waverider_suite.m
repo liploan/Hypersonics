@@ -14,14 +14,23 @@ function results = test_waverider_suite()
 
     % 1. Test Oblique Shock & Taylor-Maccoll Conical Flow Solver
     shock = waverider.flow.obliqueShock(6.0, 15.0, 1.4);
-    assert(shock.deltaDeg > 7.0 && shock.deltaDeg < 7.5, 'Oblique shock deflection out of range.');
-    assert(shock.p2_p1 > 2.5, 'Oblique shock pressure ratio out of range.');
+    assert(abs(shock.deltaDeg - 7.18494) < 1e-4, 'Oblique shock deflection mismatch.');
+    assert(abs(shock.p2_p1 - 2.64680) < 1e-4, 'Oblique shock pressure ratio mismatch.');
 
     tm = waverider.flow.taylorMaccoll(6.0, 15.0, 1.4);
-    assert(tm.thetaConeDeg > 9.0 && tm.thetaConeDeg < 11.5, 'Taylor-Maccoll cone angle out of range.');
+    assert(abs(tm.thetaConeDeg - 10.73711) < 2e-3, 'Taylor-Maccoll cone angle mismatch.');
     assert(abs(tm.utheta(1)) < 1e-9, 'Normal velocity at cone surface must be zero.');
-    fprintf('[PASS] Flowfield solvers: M=6, beta=15 deg -> delta_wedge=%.3f deg, theta_cone=%.3f deg\n', ...
+    fprintf('[PASS] Flowfield solvers: M=6, beta=15 deg -> delta_wedge=%.4f deg, theta_cone=%.4f deg\n', ...
         shock.deltaDeg, tm.thetaConeDeg);
+
+    % Verify sub-Mach shock angle guard
+    caughtSubMach = false;
+    try
+        waverider.WaveriderBody('Mach', 3.0, 'ShockAngleDeg', 15.0); % asin(1/3) = 19.47 deg
+    catch ME
+        caughtSubMach = contains(ME.identifier, 'ShockBelowMachAngle');
+    end
+    assert(caughtSubMach, 'Expected ShockBelowMachAngle error when beta <= asin(1/M).');
 
     % 2. Test all 4 Waverider Presets + Both Upper Surface Types
     presets = {'conical', 'osculating_cone', 'caret', 'cst'};
@@ -101,7 +110,15 @@ function results = test_waverider_suite()
     trRead = stlread(stlFile);
     fbRead = freeBoundary(trRead);
     assert(isempty(fbRead), 'Re-imported STL triangulation is not watertight!');
-    fprintf('[PASS] STL & OBJ export verified (re-imported STL freeBoundary = %d)\n', size(fbRead, 1));
+    objText = fileread(objFile);
+    nObjV = numel(regexp(objText, '(?m)^v\s+'));
+    nObjF = numel(regexp(objText, '(?m)^f\s+'));
+    assert(nObjV == bodyOC.Report.NumVertices && nObjF == bodyOC.Report.NumFaces, ...
+        'OBJ vertex/face count does not match mesh report.');
+    pol0 = bodyOC.computeAeroPolar(0.0);
+    assert(abs(pol0.CL - bodyOC.AeroMetrics.CL) < 1e-13, 'AeroPolar(0) must match AeroMetrics.CL.');
+    fprintf('[PASS] STL & OBJ export verified (STL freeBoundary = %d, OBJ V=%d, F=%d)\n', ...
+        size(fbRead, 1), nObjV, nObjF);
 
     % 5. Test Range-Angle-Intensity (RTI) & Waveform Bandwidth Resolution
     rti200  = waverider.rcs.computeRangeProfile(bodyOC, 10.0, 200.0,  [0, 45, 90], -22.0);
