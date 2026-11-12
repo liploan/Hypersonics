@@ -1061,8 +1061,8 @@
     });
   }
 
-  // 8. Canvas 3 & 4: Multi-Band UHF-to-X-Band RCS Charts with Labeled Axes
-  function drawLineChart(canvas, xVec, seriesList, xLabel, yLabel, yMin, yMax, vLines = []) {
+  // 8. Canvas 3, 4 & 6: Labeled Line Charts (Angular RCS & Down-Range HRRP)
+  function drawLineChart(canvas, xVec, seriesList, xLabel, yLabel, yMin, yMax, vLines = [], xUnit = "°", xStepOpt = null) {
     const rect = canvas.parentElement.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
     canvas.width = rect.width * dpr;
@@ -1100,15 +1100,19 @@
     }
 
     ctx.textAlign = "center";
-    const xStep = 30;
-    for (let x = xMin; x <= xMax; x += xStep) {
+    const xStep = xStepOpt || 30;
+    const xStart = Math.ceil(xMin / xStep) * xStep;
+    for (let x = xStart; x <= xMax + 1e-6; x += xStep) {
       const [px] = toPx(x, yMin);
+      if (px < padL - 2 || px > padL + plotW + 2) continue;
       ctx.beginPath(); ctx.moveTo(px, padT); ctx.lineTo(px, padT + plotH); ctx.stroke();
-      ctx.fillText(`${x}°`, px, padT + plotH + 16);
+      const xTxt = xUnit === " m" ? `${x >= 0 ? "+" : ""}${x.toFixed(1)} m` : `${Math.round(x)}${xUnit}`;
+      ctx.fillText(xTxt, px, padT + plotH + 16);
     }
 
-    // Optional Vertical Reference Lines (e.g., Horizon 0 deg or LE Specular)
+    // Optional Vertical Reference Lines (e.g., Horizon 0 deg, LE Specular, or Nose/Base Range)
     vLines.forEach((vl) => {
+      if (vl.x < xMin || vl.x > xMax) return;
       const [px] = toPx(vl.x, yMin);
       ctx.save();
       ctx.setLineDash([4, 4]);
@@ -1119,10 +1123,11 @@
       ctx.lineTo(px, padT + plotH);
       ctx.stroke();
       if (vl.label) {
-        ctx.fillStyle = "#e2e8f0";
+        ctx.fillStyle = vl.color || "#e2e8f0";
         ctx.font = "10.5px -apple-system, BlinkMacSystemFont, sans-serif";
-        ctx.textAlign = "left";
-        ctx.fillText(vl.label, px + 5, padT + 14);
+        ctx.textAlign = px > padL + plotW * 0.72 ? "right" : "left";
+        const dxTxt = px > padL + plotW * 0.72 ? -5 : 5;
+        ctx.fillText(vl.label, px + dxTxt, padT + (vl.yOffset || 14));
       }
       ctx.restore();
     });
@@ -1179,12 +1184,476 @@
     }
   }
 
+  // 8B. Fast Coherent Range-Angle-Intensity (RTI / Sinogram) & HRRP Engine
+  let currentRTIData = null;
+
+  function turboColormapRGB(t) {
+    // High-contrast radar colormap (0.0 -> dark navy, 0.35 -> cyan, 0.65 -> yellow/orange, 1.0 -> bright white-red)
+    const x = Math.max(0.0, Math.min(1.0, t));
+    const r = Math.round(255 * Math.min(1.0, Math.max(0.0, 1.55 * x - 0.15 + 0.35 * Math.pow(x, 3))));
+    const g = Math.round(255 * Math.min(1.0, Math.max(0.0, Math.sin(Math.PI * Math.pow(x, 0.88)) * 0.95 + 0.18 * x)));
+    const b = Math.round(255 * Math.min(1.0, Math.max(0.0, 0.22 + 0.85 * Math.sin(Math.PI * (1.0 - x * 0.82)) * (1.0 - 0.65 * x))));
+    return [r, g, b];
+  }
+
+  function computeRangeAngleIntensity(model, freqGHz, bwMHz, elDeg, includeMB, winType) {
+    const c0 = 299792458.0; // m/s
+    const B_Hz = Math.max(bwMHz, 10.0) * 1e6;
+    const deltaR_m = c0 / (2.0 * B_Hz); // Unwindowed range resolution c / (2B)
+
+    let winFactor = 1.44, sidelobeDecay = 2.6;
+    if (winType === "hamming") {
+      winFactor = 1.30;
+      sidelobeDecay = 2.1;
+    } else if (winType === "rect") {
+      winFactor = 1.00;
+      sidelobeDecay = 0.85;
+    }
+    const effDeltaR_m = winFactor * deltaR_m;
+
+    const lam = 0.299792458 / freqGHz;
+    const k0 = (2.0 * Math.PI) / lam;
+    const prefactor = k0 / Math.sqrt(Math.PI);
+
+    // Reference midpoint along vehicle X-axis
+    const xMaxTotal = model.cfg.length +
+      (model.cfg.frustum ? model.cfg.flength * (1.0 + (model.cfg.rocket ? 0.85 : 0.0)) : 0.0);
+    const xRef = 0.5 * xMaxTotal;
+    const rLim = Math.max(0.66 * xMaxTotal, model.cfg.span * 1.2) + 1.0;
+
+    const nR = 141;
+    const rangeVec = new Array(nR);
+    const dBin = (2.0 * rLim) / (nR - 1);
+    for (let ir = 0; ir < nR; ir++) {
+      rangeVec[ir] = -rLim + ir * dBin;
+    }
+
+    // Precompute pulse-compression PSF kernel over bin offsets
+    const halfSpanBins = Math.min(48, Math.ceil((3.5 * effDeltaR_m) / dBin) + 3);
+    const psfKernel = new Float64Array(2 * halfSpanBins + 1);
+    for (let dk = -halfSpanBins; dk <= halfSpanBins; dk++) {
+      const u = (dk * dBin) / effDeltaR_m;
+      const piU = Math.PI * u;
+      const sincVal = Math.abs(piU) < 1e-7 ? 1.0 : Math.sin(piU) / piU;
+      psfKernel[dk + halfSpanBins] = sincVal / (1.0 + Math.pow(Math.abs(u) / sidelobeDecay, 2.5));
+    }
+
+    const azVec = [];
+    for (let a = 0; a <= 180; a += 3) azVec.push(a);
+    const nAz = azVec.length;
+    const elRad = (elDeg * Math.PI) / 180.0;
+
+    const { faces, faceNormals, faceCenters, faceAreas, concavePairs } = model;
+    const lobeSharp = Math.min(Math.max(0.35 * k0, 3.5), 28.0);
+    const elecScale = Math.min(Math.pow(1.0 / (0.4 * lam), 0.55), 2.6);
+
+    const RTI_total_dBsm = new Array(nAz);
+    const RTI_single_dBsm = new Array(nAz);
+    const RTI_double_dBsm = new Array(nAz);
+    const R_nose = new Array(nAz);
+    const R_base = new Array(nAz);
+    const R_aft = new Array(nAz);
+
+    const rawSingleRe = new Float64Array(nR);
+    const rawSingleIm = new Float64Array(nR);
+    const rawDoubleRe = new Float64Array(nR);
+    const rawDoubleIm = new Float64Array(nR);
+
+    for (let ia = 0; ia < nAz; ia++) {
+      const azRad = (azVec[ia] * Math.PI) / 180.0;
+      const ux = -Math.cos(elRad) * Math.cos(azRad);
+      const uy = Math.cos(elRad) * Math.sin(azRad);
+      const uz = Math.sin(elRad);
+
+      // Landmark range projections relative to xRef
+      R_nose[ia] = -((0.0 - xRef) * ux);
+      R_base[ia] = -((model.cfg.length - xRef) * ux);
+      R_aft[ia]  = -((xMaxTotal - xRef) * ux);
+
+      rawSingleRe.fill(0.0);
+      rawSingleIm.fill(0.0);
+      rawDoubleRe.fill(0.0);
+      rawDoubleIm.fill(0.0);
+
+      // 1. Coherent Single-Bounce Facet Splatting into Down-Range Bins
+      for (let f = 0; f < faces.length; f += 2) {
+        const n = faceNormals[f];
+        const cosTh = n[0] * ux + n[1] * uy + n[2] * uz;
+        if (cosTh <= 1e-4) continue;
+        const rc = faceCenters[f];
+        const rDotU = (rc[0] - xRef) * ux + rc[1] * uy + rc[2] * uz;
+        const R_f = -rDotU;
+        const damp = 1.0 / (1.0 + 0.08 * k0 * Math.sqrt(faceAreas[f]) * (1.0 - cosTh));
+        const amp = 2.0 * prefactor * faceAreas[f] * cosTh * damp;
+        const phase = 2.0 * k0 * rDotU;
+        const re = -amp * Math.sin(phase);
+        const im = amp * Math.cos(phase);
+
+        const fBin = (R_f + rLim) / dBin;
+        const b0 = Math.floor(fBin);
+        const frac = fBin - b0;
+        if (b0 >= 0 && b0 < nR - 1) {
+          rawSingleRe[b0] += re * (1.0 - frac);
+          rawSingleIm[b0] += im * (1.0 - frac);
+          rawSingleRe[b0 + 1] += re * frac;
+          rawSingleIm[b0 + 1] += im * frac;
+        }
+      }
+
+      // 2. Concave Underside Double-Bounce Splatting (+0.5 * d_PQ Cavity Path Delay)
+      if (includeMB && concavePairs.length > 0) {
+        for (let p = 0; p < concavePairs.length; p++) {
+          const cp = concavePairs[p];
+          const cosP = cp.nP[0] * ux + cp.nP[1] * uy + cp.nP[2] * uz;
+          const cosQ = cp.nQ[0] * ux + cp.nQ[1] * uy + cp.nQ[2] * uz;
+          if (cosP <= 0.02 || cosQ <= 0.02) continue;
+
+          const dDotU = cp.dHat[0] * ux + cp.dHat[1] * uy + cp.dHat[2] * uz;
+          const alignPQ = -dDotU + 2.0 * cosP * cp.cP;
+          const alignQP = dDotU + 2.0 * cosQ * cp.cQ;
+          const alignMax = Math.max(alignPQ, alignQP);
+          if (alignMax <= 0.62) continue;
+
+          const wLobe = Math.exp(-lobeSharp * (1.0 - alignMax));
+          const amp = prefactor * cp.effA * elecScale * Math.sqrt(cosP * cosQ) * wLobe;
+          const rMidDotU =
+            (0.5 * (cp.rP[0] + cp.rQ[0]) - xRef) * ux +
+            0.5 * (cp.rP[1] + cp.rQ[1]) * uy +
+            0.5 * (cp.rP[2] + cp.rQ[2]) * uz;
+
+          // Apparent down-range includes +0.5 * cp.dist cavity bounce delay
+          const R_mb = -rMidDotU + 0.5 * cp.dist;
+          const phase = k0 * (2.0 * rMidDotU - cp.dist);
+          const re = -amp * Math.sin(phase);
+          const im = amp * Math.cos(phase);
+
+          const fBin = (R_mb + rLim) / dBin;
+          const b0 = Math.floor(fBin);
+          const frac = fBin - b0;
+          if (b0 >= 0 && b0 < nR - 1) {
+            rawDoubleRe[b0] += re * (1.0 - frac);
+            rawDoubleIm[b0] += im * (1.0 - frac);
+            rawDoubleRe[b0 + 1] += re * frac;
+            rawDoubleIm[b0 + 1] += im * frac;
+          }
+        }
+      }
+
+      // 3. Convolve with Band-Limited Pulse Compression PSF Kernel
+      const rowTot = new Array(nR);
+      const rowSng = new Array(nR);
+      const rowDbl = new Array(nR);
+      const noiseFloor = 1e-4;
+
+      for (let ir = 0; ir < nR; ir++) {
+        let sRe = 0.0, sIm = 0.0, dRe = 0.0, dIm = 0.0;
+        const kMin = Math.max(-halfSpanBins, -ir);
+        const kMax = Math.min(halfSpanBins, nR - 1 - ir);
+        for (let dk = kMin; dk <= kMax; dk++) {
+          const w = psfKernel[dk + halfSpanBins];
+          const src = ir + dk;
+          sRe += rawSingleRe[src] * w;
+          sIm += rawSingleIm[src] * w;
+          dRe += rawDoubleRe[src] * w;
+          dIm += rawDoubleIm[src] * w;
+        }
+        const sigSng = sRe * sRe + sIm * sIm + noiseFloor;
+        const sigDbl = dRe * dRe + dIm * dIm + noiseFloor;
+        const sigTot = (sRe + dRe) * (sRe + dRe) + (sIm + dIm) * (sIm + dIm) + noiseFloor;
+
+        rowSng[ir] = 10.0 * Math.log10(sigSng);
+        rowDbl[ir] = 10.0 * Math.log10(sigDbl);
+        rowTot[ir] = 10.0 * Math.log10(sigTot);
+      }
+
+      RTI_single_dBsm[ia] = rowSng;
+      RTI_double_dBsm[ia] = rowDbl;
+      RTI_total_dBsm[ia]  = rowTot;
+    }
+
+    return {
+      freqGHz, bwMHz, deltaR_m, effDeltaR_m, winType, elDeg,
+      azVec, rangeVec, rLim,
+      RTI_total_dBsm, RTI_single_dBsm, RTI_double_dBsm,
+      R_nose, R_base, R_aft
+    };
+  }
+
+  // Canvas 5: 2D Range-Angle-Intensity Sinogram (RTI) with Colorbar & Landmarks
+  const canvasRTI = document.getElementById("canvas-rti");
+  function renderRangeAngleIntensity(rtiData, azCutDeg) {
+    const rect = canvasRTI.parentElement.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    canvasRTI.width = rect.width * dpr;
+    canvasRTI.height = rect.height * dpr;
+    const ctx = canvasRTI.getContext("2d");
+    ctx.scale(dpr, dpr);
+    const W = rect.width, H = rect.height;
+
+    ctx.fillStyle = "#090e1a";
+    ctx.fillRect(0, 0, W, H);
+
+    const padL = 64, padR = 76, padT = 34, padB = 48;
+    const plotW = Math.max(W - padL - padR, 100);
+    const plotH = Math.max(H - padT - padB, 100);
+
+    const { azVec, rangeVec, RTI_total_dBsm, R_nose, R_base, R_aft } = rtiData;
+    const nAz = azVec.length;
+    const nR = rangeVec.length;
+    const rMin = rangeVec[0], rMax = rangeVec[nR - 1];
+    const azMin = azVec[0], azMax = azVec[nAz - 1];
+    const cMin = -38.0, cMax = 18.0;
+
+    // Render heatmap to offscreen canvas and draw into plot box
+    const offCanvas = document.createElement("canvas");
+    offCanvas.width = nR;
+    offCanvas.height = nAz;
+    const offCtx = offCanvas.getContext("2d");
+    const imgData = offCtx.createImageData(nR, nAz);
+    const data = imgData.data;
+
+    for (let ia = 0; ia < nAz; ia++) {
+      // Draw azimuth 0 deg at bottom, 180 deg at top
+      const rowIdx = nAz - 1 - ia;
+      const rowVals = RTI_total_dBsm[ia];
+      for (let ir = 0; ir < nR; ir++) {
+        const norm = (rowVals[ir] - cMin) / (cMax - cMin);
+        const [r, g, b] = turboColormapRGB(norm);
+        const pIdx = (rowIdx * nR + ir) * 4;
+        data[pIdx] = r;
+        data[pIdx + 1] = g;
+        data[pIdx + 2] = b;
+        data[pIdx + 3] = 255;
+      }
+    }
+    offCtx.putImageData(imgData, 0, 0);
+
+    ctx.save();
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(offCanvas, padL, padT, plotW, plotH);
+    ctx.restore();
+
+    function toPx(rVal, azVal) {
+      const px = padL + ((rVal - rMin) / (rMax - rMin)) * plotW;
+      const py = padT + (1.0 - (azVal - azMin) / (azMax - azMin)) * plotH;
+      return [px, py];
+    }
+
+    // Overlay Subtle Grid & Landmark Tracks Clipped to Plot Box
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(padL, padT, plotW, plotH);
+    ctx.clip();
+
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.14)";
+    ctx.lineWidth = 1;
+    for (let r = Math.ceil(rMin); r <= Math.floor(rMax); r += 1.0) {
+      const [px] = toPx(r, 0);
+      ctx.beginPath(); ctx.moveTo(px, padT); ctx.lineTo(px, padT + plotH); ctx.stroke();
+    }
+    for (let a = 0; a <= 180; a += 30) {
+      const [, py] = toPx(0, a);
+      ctx.beginPath(); ctx.moveTo(padL, py); ctx.lineTo(padL + plotW, py); ctx.stroke();
+    }
+
+    // Nose Tip Trajectory
+    ctx.save();
+    ctx.setLineDash([5, 4]);
+    ctx.strokeStyle = "#38bdf8";
+    ctx.lineWidth = 1.7;
+    ctx.beginPath();
+    for (let ia = 0; ia < nAz; ia++) {
+      const [px, py] = toPx(R_nose[ia], azVec[ia]);
+      if (ia === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+
+    // Waverider Base Trajectory (X = L)
+    ctx.strokeStyle = "#fbbf24";
+    ctx.beginPath();
+    for (let ia = 0; ia < nAz; ia++) {
+      const [px, py] = toPx(R_base[ia], azVec[ia]);
+      if (ia === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+
+    // Booster Aft Base Trajectory (if frustum enabled)
+    if (Math.abs(R_aft[0] - R_base[0]) > 0.05) {
+      ctx.setLineDash([2, 3]);
+      ctx.strokeStyle = "#4ade80";
+      ctx.beginPath();
+      for (let ia = 0; ia < nAz; ia++) {
+        const [px, py] = toPx(R_aft[ia], azVec[ia]);
+        if (ia === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Selected HRRP Cut Azimuth Line
+    const [, pyCut] = toPx(0, azCutDeg);
+    ctx.save();
+    ctx.setLineDash([6, 4]);
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.moveTo(padL, pyCut);
+    ctx.lineTo(padL + plotW, pyCut);
+    ctx.stroke();
+    ctx.fillStyle = "rgba(9, 14, 26, 0.78)";
+    ctx.fillRect(padL + 6, Math.max(padT + 2, pyCut - 18), 118, 15);
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 10.5px -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText(`HRRP Cut \u03C8 = ${azCutDeg}\u00B0`, padL + 10, Math.max(padT + 13, pyCut - 7));
+    ctx.restore();
+
+    ctx.restore();
+
+    // Plot Border
+    ctx.strokeStyle = "#475569";
+    ctx.lineWidth = 1.2;
+    ctx.strokeRect(padL, padT, plotW, plotH);
+
+    // Axis Numeric Tick Labels
+    ctx.fillStyle = "#cbd5e1";
+    ctx.font = "11px ui-monospace, SFMono-Regular, Menlo, monospace";
+    ctx.textAlign = "center";
+    const rStep = (rMax - rMin) > 8.5 ? 2.0 : 1.0;
+    for (let r = Math.ceil(rMin / rStep) * rStep; r <= rMax; r += rStep) {
+      const [px] = toPx(r, 0);
+      if (px >= padL + 8 && px <= padL + plotW - 8) {
+        ctx.fillText(`${r >= 0 ? "+" : ""}${r.toFixed(1)} m`, px, padT + plotH + 16);
+      }
+    }
+
+    ctx.textAlign = "right";
+    for (let a = 0; a <= 180; a += 30) {
+      const [, py] = toPx(0, a);
+      ctx.fillText(`${a}\u00B0`, padL - 8, py + 4);
+    }
+
+    // Centered X-Axis & Rotated Y-Axis Titles
+    ctx.fillStyle = "#f0f4fc";
+    ctx.font = "bold 12px -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("Down-Range Coordinate R [m]  (Relative to Vehicle Center:  -R Toward Radar  \u2194  +R Away)", padL + plotW * 0.5, H - 10);
+
+    ctx.save();
+    ctx.translate(16, padT + plotH * 0.5);
+    ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = "center";
+    ctx.fillText("Azimuth Aspect Angle \u03C8 [deg]", 0, 0);
+    ctx.restore();
+
+    // Top Legend Bar
+    const rtiLegend = [
+      { label: "Nose Locus", color: "#38bdf8" },
+      { label: "Waverider Base (X=L)", color: "#fbbf24" },
+      ...(Math.abs(R_aft[0] - R_base[0]) > 0.05 ? [{ label: "Booster Base", color: "#4ade80" }] : []),
+      { label: "Selected HRRP Cut", color: "#ffffff" }
+    ];
+    let lx = padL + 4;
+    ctx.textAlign = "left";
+    ctx.font = "11px -apple-system, BlinkMacSystemFont, sans-serif";
+    rtiLegend.forEach((s) => {
+      ctx.fillStyle = s.color;
+      ctx.fillRect(lx, 12, 14, 3);
+      ctx.fillStyle = "#e2e8f0";
+      ctx.fillText(s.label, lx + 18, 17);
+      lx += ctx.measureText(s.label).width + 24;
+    });
+
+    // Right-Side Colorbar
+    const cbX = padL + plotW + 12;
+    const cbW = 12;
+    for (let iy = 0; iy < plotH; iy++) {
+      const norm = 1.0 - iy / plotH;
+      const [r, g, b] = turboColormapRGB(norm);
+      ctx.fillStyle = `rgb(${r},${g},${b})`;
+      ctx.fillRect(cbX, padT + iy, cbW, 1.5);
+    }
+    ctx.strokeStyle = "#475569";
+    ctx.strokeRect(cbX, padT, cbW, plotH);
+
+    ctx.fillStyle = "#cbd5e1";
+    ctx.font = "10px ui-monospace, SFMono-Regular, Menlo, monospace";
+    ctx.textAlign = "left";
+    for (const dbVal of [-35, -20, -5, 10]) {
+      const py = padT + (1.0 - (dbVal - cMin) / (cMax - cMin)) * plotH;
+      ctx.fillText(`${dbVal >= 0 ? "+" : ""}${dbVal}`, cbX + cbW + 4, py + 3);
+    }
+    ctx.save();
+    ctx.translate(W - 8, padT + plotH * 0.5);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillStyle = "#f0f4fc";
+    ctx.font = "bold 11px -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("Intensity [dBsm]", 0, 0);
+    ctx.restore();
+  }
+
+  // Canvas 6: 1D High-Resolution Range Profile (HRRP) Cut & Delayed Cavity Bounce
+  function renderHRRPChart(rtiData, azCutDeg) {
+    const idx = Math.max(0, Math.min(rtiData.azVec.length - 1, Math.round(azCutDeg / 3)));
+    const actualAz = rtiData.azVec[idx];
+    const deltaR_cm = (rtiData.deltaR_m * 100.0).toFixed(1);
+
+    const hrrpSeries = [
+      { label: "Total Profile (PO + 2-Bounce)", color: "#38bdf8", data: rtiData.RTI_total_dBsm[idx], width: 2.3, dashed: false },
+      { label: "Single-Bounce PO Only", color: "#fb923c", data: rtiData.RTI_single_dBsm[idx], width: 1.6, dashed: true },
+      { label: "Concave 2-Bounce (+0.5 d_PQ Delay)", color: "#c084fc", data: rtiData.RTI_double_dBsm[idx], width: 2.0, dashed: false }
+    ];
+
+    const vLines = [
+      { x: rtiData.R_nose[idx], label: "Nose Tip", color: "#38bdf8", yOffset: 14 },
+      { x: rtiData.R_base[idx], label: "Waverider Base (X=L)", color: "#fbbf24", yOffset: 28 }
+    ];
+    if (Math.abs(rtiData.R_aft[idx] - rtiData.R_base[idx]) > 0.08) {
+      vLines.push({ x: rtiData.R_aft[idx], label: "Booster Base", color: "#4ade80", yOffset: 42 });
+    }
+
+    const rStep = (rtiData.rangeVec[rtiData.rangeVec.length - 1] - rtiData.rangeVec[0]) > 8.5 ? 2.0 : 1.0;
+    drawLineChart(
+      document.getElementById("canvas-hrrp"),
+      rtiData.rangeVec,
+      hrrpSeries,
+      `Down-Range Coordinate R [m]  (f_c = ${rtiData.freqGHz.toFixed(1)} GHz, B = ${rtiData.bwMHz.toFixed(0)} MHz, \u0394R = ${deltaR_cm} cm, \u03C8 = ${actualAz}\u00B0)`,
+      "Range Profile \u03C3(R) [dBsm]",
+      -40,
+      25,
+      vLines,
+      " m",
+      rStep
+    );
+  }
+
   function updateRCSAndPlots() {
     const elLook = parseFloat(document.getElementById("rng-rcsel").value);
+    const fcGHz = parseFloat(document.getElementById("rng-fc").value);
+    const bwMHz = parseFloat(document.getElementById("rng-bw").value);
+    const winType = document.getElementById("sel-window").value;
+    const rtiAz = parseFloat(document.getElementById("rng-rtiaz").value);
     const includeMB = document.getElementById("chk-multibounce").checked;
+
+    const c0 = 299792458.0;
+    const deltaR_cm = (c0 / (2.0 * bwMHz * 1e6)) * 100.0;
+    const bandLabel = fcGHz < 1.0 ? "UHF" : fcGHz < 2.0 ? "L" : fcGHz < 4.0 ? "S" : fcGHz < 8.0 ? "C" : "X";
+
+    document.getElementById("val-fc").textContent = `${fcGHz.toFixed(1)} GHz (${bandLabel})`;
+    document.getElementById("val-bw").innerHTML = `${bwMHz.toFixed(0)} MHz (&Delta;R=${deltaR_cm.toFixed(1)} cm)`;
+    document.getElementById("val-rtiaz").innerHTML = `${rtiAz.toFixed(0)}&deg;`;
+
+    document.getElementById("m-rangeres").textContent = `${deltaR_cm.toFixed(1)} cm`;
+    document.getElementById("m-bw-sub").textContent =
+      `B = ${bwMHz.toFixed(0)} MHz @ ${fcGHz.toFixed(1)} GHz (${((bwMHz * 0.1) / fcGHz).toFixed(1)}% BW)`;
 
     document.getElementById("hint-az-el").innerHTML =
       `Evaluated at Look Elevation &theta;<sub>el</sub> = ${elLook}&deg; (${elLook < 0 ? "Ventral Cavity" : "Dorsal Canopy"})`;
+    document.getElementById("hint-rti-bw").innerHTML =
+      `f<sub>c</sub> = ${fcGHz.toFixed(1)} GHz · B = ${bwMHz.toFixed(0)} MHz (&Delta;R = ${deltaR_cm.toFixed(1)} cm) · Click Heatmap to Cut`;
+    document.getElementById("hint-hrrp-cut").innerHTML =
+      `Cut at &psi;<sub>cut</sub> = ${rtiAz.toFixed(0)}&deg;, &theta;<sub>el</sub> = ${elLook}&deg; · Window: ${winType.toUpperCase()}`;
 
     // 1. Azimuthal Sweep (0 to 180 deg) across UHF (0.5), L (1.5), S (3.0), C (6.0), X (10.0 GHz)
     const azVec = [];
@@ -1275,6 +1744,11 @@
     document.getElementById("m-rcs-x").textContent = `${vX_dB >= 0 ? "+" : ""}${vX_dB.toFixed(1)} dBsm`;
     document.getElementById("m-rcs-diff").textContent =
       `Dorsal: ${dX_dB >= 0 ? "+" : ""}${dX_dB.toFixed(1)} | UHF: ${vUHF_dB.toFixed(1)} dBsm`;
+
+    // 3. Compute & Render 2D Range-Angle-Intensity (Sinogram) and 1D High-Resolution Range Profile (HRRP)
+    currentRTIData = computeRangeAngleIntensity(currentModel, fcGHz, bwMHz, elLook, includeMB, winType);
+    renderRangeAngleIntensity(currentRTIData, rtiAz);
+    renderHRRPChart(currentRTIData, rtiAz);
   }
 
   // 9. Read UI Controls & Rebuild Model
@@ -1402,6 +1876,10 @@
 
   document.getElementById("btn-open-matlab").addEventListener("click", () => {
     const cfg = readConfigFromUI();
+    const fcGHz = parseFloat(document.getElementById("rng-fc").value);
+    const bwMHz = parseFloat(document.getElementById("rng-bw").value);
+    const elLook = parseFloat(document.getElementById("rng-rcsel").value);
+    const rtiAz = parseFloat(document.getElementById("rng-rtiaz").value);
     const code = [
       "setup_waverider();",
       "",
@@ -1426,6 +1904,7 @@
       "body.printSummary();",
       "body.plot();",
       "body.plotRCS();",
+      `waverider.viz.plotRangeAngleIntensity(body, 'CenterFreqGHz', ${fcGHz.toFixed(1)}, 'BandwidthMHz', ${bwMHz.toFixed(0)}, 'ElevationDeg', ${elLook.toFixed(1)}, 'CutAzimuthDeg', ${rtiAz.toFixed(0)});`,
       "body.exportSTL('output/custom_waverider.stl');"
     ].join("\n");
     document.getElementById("matlab-code-output").textContent = code;
@@ -1469,6 +1948,40 @@
   document.querySelectorAll("input, select").forEach((el) => {
     el.addEventListener("input", updateAll);
     el.addEventListener("change", updateAll);
+  });
+
+  // Interactive Azimuth Cut Selection on Canvas 5 (RTI Sinogram)
+  let rtiDragging = false;
+  function selectRTIAzimuthFromEvent(e) {
+    if (!currentRTIData) return;
+    const rect = canvasRTI.getBoundingClientRect();
+    const padT = 34, padB = 48;
+    const plotH = Math.max(rect.height - padT - padB, 100);
+    const yRel = e.clientY - rect.top - padT;
+    const normAz = 1.0 - Math.max(0.0, Math.min(1.0, yRel / plotH));
+    const azSelected = Math.round((normAz * 180.0) / 3.0) * 3;
+    const rngAz = document.getElementById("rng-rtiaz");
+    rngAz.value = azSelected;
+    syncSliderVars(rngAz);
+    document.getElementById("val-rtiaz").innerHTML = `${azSelected}&deg;`;
+    const elLook = parseFloat(document.getElementById("rng-rcsel").value);
+    const winType = document.getElementById("sel-window").value;
+    document.getElementById("hint-hrrp-cut").innerHTML =
+      `Cut at &psi;<sub>cut</sub> = ${azSelected}&deg;, &theta;<sub>el</sub> = ${elLook}&deg; · Window: ${winType.toUpperCase()}`;
+    renderRangeAngleIntensity(currentRTIData, azSelected);
+    renderHRRPChart(currentRTIData, azSelected);
+  }
+  canvasRTI.addEventListener("pointerdown", (e) => {
+    rtiDragging = true;
+    canvasRTI.setPointerCapture(e.pointerId);
+    selectRTIAzimuthFromEvent(e);
+  });
+  canvasRTI.addEventListener("pointermove", (e) => {
+    if (!rtiDragging) return;
+    selectRTIAzimuthFromEvent(e);
+  });
+  canvasRTI.addEventListener("pointerup", () => {
+    rtiDragging = false;
   });
 
   // 3D Orbit Camera Interaction

@@ -103,6 +103,14 @@ function results = test_waverider_suite()
     assert(isempty(fbRead), 'Re-imported STL triangulation is not watertight!');
     fprintf('[PASS] STL & OBJ export verified (re-imported STL freeBoundary = %d)\n', size(fbRead, 1));
 
+    % 5. Test Range-Angle-Intensity (RTI) & Waveform Bandwidth Resolution
+    rti200  = waverider.rcs.computeRangeProfile(bodyOC, 10.0, 200.0,  [0, 45, 90], -22.0);
+    rti1000 = waverider.rcs.computeRangeProfile(bodyOC, 10.0, 1000.0, [0, 45, 90], -22.0);
+    assert(abs(rti200.deltaR_m - 5.0 * rti1000.deltaR_m) < 1e-6, 'Range resolution must scale inversely with bandwidth B.');
+    assert(all(isfinite(rti1000.RTI_total_dBsm(:))), 'RTI matrix contains non-finite values.');
+    fprintf('[PASS] Range-Angle-Intensity verified (B=1000 MHz -> DeltaR = %.2f cm, B=200 MHz -> DeltaR = %.2f cm)\n', ...
+        rti1000.deltaR_m * 100, rti200.deltaR_m * 100);
+
     fprintf('================================================================\n');
     fprintf('  ALL %d WAVERIDER TEST CONFIGURATIONS PASSED 100%%!\n', idx);
     fprintf('================================================================\n');

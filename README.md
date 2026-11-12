@@ -9,6 +9,7 @@ A modular MATLAB codebase (`+waverider`) and interactive client-side web studio 
 
 ![Booster Integration Overview](docs/assets/waverider_booster_integration.png)
 ![UHF to X-Band RCS & Concave Underside Analysis](docs/assets/waverider_rcs_uhf_to_xband_caret.png)
+![Range-Angle-Intensity Sinogram & Waveform Bandwidth Resolution](docs/assets/waverider_range_angle_intensity.png)
 
 ---
 
@@ -63,18 +64,29 @@ Hypersonics/
 │   │   ├── verifyWatertight.m        % Topology, manifold, Euler & volume verification
 │   │   ├── exportSTL.m               % Binary/ASCII STL writer
 │   │   └── exportOBJ.m               % Grouped Wavefront OBJ writer
+│   ├── +rcs/
+│   │   ├── computeRCS.m              % Multi-band PO + concave double-bounce + MEC solver
+│   │   ├── buildConcavePairList.m    % Mutually visible lower-surface cavity pair builder
+│   │   └── computeRangeProfile.m     % Range-Angle-Intensity (RTI) & HRRP bandwidth solver
 │   └── +viz/
 │       ├── plotWaverider.m           % 4-panel 3D & cross-sectional visualizer
 │       ├── plotGeometryLines.m       % 3D lofting ribs, station slices & area-rule plot
 │       ├── plotKeyAttributes.m       % Flowfield, AoA polar, spanwise load & normals plot
 │       ├── plotFamilyComparison.m    % Side-by-side 4-family comparison dashboard
-│       └── plotTradeSpace.m          % 2D parametric contour maps & Pareto front
+│       ├── plotTradeSpace.m          % 2D parametric contour maps & Pareto front
+│       ├── plotBoosterIntegration.m  % Conformal aft frustum & conical rocket adapter plot
+│       ├── plotRCSAnalysis.m         % Multi-band UHF-to-X-band RCS & 3D cavity rays plot
+│       ├── plotRCSConcavityComparison.m % 2D Az-El sphere & double-bounce gain comparison
+│       └── plotRangeAngleIntensity.m % 4-panel Range-Angle-Intensity (Sinogram) & BW plot
+├── docs/                             % GitHub Pages Interactive Web Studio (HTML/CSS/JS)
 ├── examples/
 │   ├── demo_all_waveriders.m         % Generates, plots, and exports all 4 presets
 │   ├── demo_parametric_sweep.m       % Parametric trade study (shock angle vs canopy)
 │   ├── plot_geometry_blueprint.m     % Standalone script for geometry lofting & lines plan
 │   ├── plot_key_attributes.m         % Standalone script for flowfield & aero attributes
-│   └── plot_family_comparison.m      % Standalone script for family & trade-space plots
+│   ├── plot_family_comparison.m      % Standalone script for family & trade-space plots
+│   ├── plot_booster_integration.m    % Standalone script for conformal booster frustum
+│   └── explore_waverider_rcs.m       % Standalone script for UHF-X RCS & RTI bandwidth study
 └── tests/
     └── test_waverider_suite.m        % Automated unit & manifold verification suite
 ```

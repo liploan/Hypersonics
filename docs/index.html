@@ -156,9 +156,9 @@
         </div>
       </section>
 
-      <!-- 4. UHF to X-Band Radar & 3D Display Controls -->
+      <!-- 4. UHF to X-Band Radar, Waveform Bandwidth & 3D Display Controls -->
       <section class="control-group">
-        <h2>4. Radar (UHF–X Band) &amp; 3D Overlays</h2>
+        <h2>4. Radar Waveform, Bandwidth &amp; 3D Overlays</h2>
 
         <div class="field-row">
           <label class="field-label" for="rng-rcsel">
@@ -166,6 +166,39 @@
             <span class="field-value" id="val-rcsel">-22&deg; (Ventral)</span>
           </label>
           <input type="range" id="rng-rcsel" min="-70" max="70" step="2" value="-22" />
+        </div>
+
+        <div class="field-row">
+          <label class="field-label" for="rng-fc">
+            <span>Waveform Center Freq (f<sub>c</sub>)</span>
+            <span class="field-value" id="val-fc">10.0 GHz (X)</span>
+          </label>
+          <input type="range" id="rng-fc" min="0.5" max="12.0" step="0.5" value="10.0" />
+        </div>
+
+        <div class="field-row">
+          <label class="field-label" for="rng-bw">
+            <span>Waveform Bandwidth (B)</span>
+            <span class="field-value" id="val-bw">1000 MHz (&Delta;R=15.0 cm)</span>
+          </label>
+          <input type="range" id="rng-bw" min="50" max="4000" step="50" value="1000" />
+        </div>
+
+        <div class="field-row">
+          <label class="field-label" for="sel-window">Pulse Compression Window</label>
+          <select id="sel-window">
+            <option value="hann" selected>Hann Window (Low Sidelobe, 1.44&times;&Delta;R)</option>
+            <option value="hamming">Hamming Window (Balanced, 1.30&times;&Delta;R)</option>
+            <option value="rect">Rectangular LFM (Max Resolution, 1.00&times;&Delta;R)</option>
+          </select>
+        </div>
+
+        <div class="field-row">
+          <label class="field-label" for="rng-rtiaz">
+            <span>1D Range Profile Cut Azimuth (&psi;<sub>cut</sub>)</span>
+            <span class="field-value" id="val-rtiaz">45&deg;</span>
+          </label>
+          <input type="range" id="rng-rtiaz" min="0" max="180" step="3" value="45" />
         </div>
 
         <label class="checkbox-row" for="chk-multibounce">
@@ -219,9 +252,14 @@
           <div class="metric-val" id="m-rcs-x">+6.5 dBsm</div>
           <div class="metric-sub" id="m-rcs-diff">Dorsal: +2.1 dBsm | UHF: -4.3 dBsm</div>
         </div>
+        <div class="metric-card">
+          <div class="metric-name">Range Resolution (&Delta;R = c/2B)</div>
+          <div class="metric-val" id="m-rangeres">15.0 cm</div>
+          <div class="metric-sub" id="m-bw-sub">B = 1000 MHz @ 10.0 GHz (10.0% BW)</div>
+        </div>
       </section>
 
-      <!-- 4-Panel Interactive Canvas Grid -->
+      <!-- 6-Panel Interactive Canvas Grid -->
       <section class="canvas-grid">
         <div class="canvas-card">
           <div class="canvas-card-header">
@@ -260,6 +298,26 @@
           </div>
           <div class="canvas-wrap">
             <canvas id="canvas-rcs-el"></canvas>
+          </div>
+        </div>
+
+        <div class="canvas-card">
+          <div class="canvas-card-header">
+            <h3>5. Range–Angle–Intensity Sinogram (RTI) &amp; Waveform Bandwidth Resolution</h3>
+            <span class="canvas-hint" id="hint-rti-bw">Click/Drag on Heatmap to Select Azimuth Cut &psi;<sub>cut</sub></span>
+          </div>
+          <div class="canvas-wrap">
+            <canvas id="canvas-rti"></canvas>
+          </div>
+        </div>
+
+        <div class="canvas-card">
+          <div class="canvas-card-header">
+            <h3>6. 1D High-Resolution Range Profile (HRRP) &amp; Delayed Cavity Bounce Cut</h3>
+            <span class="canvas-hint" id="hint-hrrp-cut">Total vs. Single-Bounce vs. Delayed Concave 2-Bounce (+0.5 d<sub>PQ</sub>)</span>
+          </div>
+          <div class="canvas-wrap">
+            <canvas id="canvas-hrrp"></canvas>
           </div>
         </div>
       </section>
@@ -315,6 +373,10 @@
       <div class="gallery-item">
         <h3>6. Cross-Family Comparison (Conical, Osculating Cone, Caret, CST)</h3>
         <img src="assets/waverider_family_comparison.png" alt="Comparative Geometry and Key Attributes Across Waverider Families" loading="lazy" />
+      </div>
+      <div class="gallery-item">
+        <h3>7. Range–Angle–Intensity Sinogram (RTI) &amp; Waveform Bandwidth Resolution</h3>
+        <img src="assets/waverider_range_angle_intensity.png" alt="Range-Angle-Intensity Sinogram and Waveform Bandwidth Resolution" loading="lazy" />
       </div>
     </div>
   </dialog>

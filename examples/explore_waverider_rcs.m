@@ -63,5 +63,13 @@ function [figBands, figConcavity, rcsReport] = explore_waverider_rcs(presetName,
     exportgraphics(figConcavity, f2Path, 'Resolution', 180);
     fprintf('Saved Concavity Comparison & Trade figure  : %s\n', f2Path);
 
-    rcsReport = struct('SummaryMetrics', summaryMetrics, 'ComparisonData', compData);
+    % Render & Export Figure 3: Range-Angle-Intensity (Sinogram) & Waveform Bandwidth Analysis
+    f3Path = fullfile(outDir, 'waverider_range_angle_intensity.png');
+    figRTI = waverider.viz.plotRangeAngleIntensity(body, ...
+        'CenterFreqGHz', 10.0, 'BandwidthMHz', 1000.0, ...
+        'ElevationDeg', -22.0, 'CutAzimuthDeg', 45.0, 'SavePath', f3Path);
+    set(figRTI, 'Visible', visibleMode);
+    fprintf('Saved Range-Angle-Intensity (RTI) figure   : %s\n', f3Path);
+
+    rcsReport = struct('SummaryMetrics', summaryMetrics, 'ComparisonData', compData, 'FigRTI', figRTI);
 end
