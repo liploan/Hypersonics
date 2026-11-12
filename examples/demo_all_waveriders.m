@@ -38,7 +38,7 @@ function bodies = demo_all_waveriders(saveOutputs)
 
             fig = body.plot('Visible', 'off');
             pngPath = fullfile(outDir, sprintf('waverider_%s_overview.png', name));
-            exportgraphics(fig, pngPath, 'Resolution', 180);
+            waverider.viz.exportFigurePNG(fig, pngPath, 200);
             close(fig);
             fprintf('  -> Saved Figure: %s\n', pngPath);
         end

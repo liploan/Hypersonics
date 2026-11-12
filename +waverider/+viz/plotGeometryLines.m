@@ -19,8 +19,9 @@ function fig = plotGeometryLines(body, varargin)
     sec = body.SectionalAttributes;
     L = cfg.Length;
 
-    fig = figure('Color', 'w', 'Position', [70, 70, 1340, 840], 'Visible', opts.Visible);
-    tl = tiledlayout(fig, 2, 2, 'TileSpacing', 'compact', 'Padding', 'compact');
+    fig = figure('Color', 'w', 'Position', [70, 70, 1400, 880], 'Visible', opts.Visible);
+    waverider.viz.stylePublicationFigure(fig, 'init');
+    tl = tiledlayout(fig, 2, 2, 'TileSpacing', 'loose', 'Padding', 'compact');
 
     title(tl, sprintf('Geometric Lofting Blueprint & Sectional Lines [%s | L = %.1f m, b = %.2f m]', ...
         upper(strrep(cfg.Method, '_', ' ')), cfg.Length, 2.0 * cfg.HalfSpan), ...
@@ -154,6 +155,8 @@ function fig = plotGeometryLines(body, varargin)
     title(ax4, sprintf('Longitudinal Area Progression (Total Vol = %.3f m^3, Base Area = %.3f m^2)', ...
         rep.EnclosedVolume, rep.BaseArea), 'FontWeight', 'bold');
     legend(ax4, 'Location', 'northwest', 'FontSize', 8);
+
+    waverider.viz.stylePublicationFigure(fig, 'finalize');
 end
 
 function [yLoop, zLoop, yShk, zShk] = extractStationLoop(surfData, xs)

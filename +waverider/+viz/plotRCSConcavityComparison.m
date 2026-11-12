@@ -71,8 +71,9 @@ function [fig, compData] = plotRCSConcavityComparison(baseBody, varargin)
         aeroLD_vec(aIdx)          = bSwp.AeroMetrics.LD_inviscid;
     end
 
-    fig = figure('Color', 'w', 'Position', [65, 65, 1380, 860], 'Visible', opts.Visible);
-    tl = tiledlayout(fig, 2, 2, 'TileSpacing', 'compact', 'Padding', 'compact');
+    fig = figure('Color', 'w', 'Position', [65, 65, 1420, 890], 'Visible', opts.Visible);
+    waverider.viz.stylePublicationFigure(fig, 'init');
+    tl = tiledlayout(fig, 2, 2, 'TileSpacing', 'loose', 'Padding', 'compact');
     title(tl, 'Underside Concavity Electromagnetic Impact: 2D Az-El Maps, Family Comparison & Trade-Offs', ...
         'FontSize', 14, 'FontWeight', 'bold');
 
@@ -147,6 +148,8 @@ function [fig, compData] = plotRCSConcavityComparison(baseBody, varargin)
     xlabel(ax4, 'Underside Leading-Edge Anhedral / Concave Trough Angle \Gamma [deg]');
     title(ax4, 'Concavity Trade-Off: Ventral Cavity RCS vs. Hypersonic L/D', 'FontWeight', 'bold');
     legend(ax4, 'Location', 'northwest', 'FontSize', 8);
+
+    waverider.viz.stylePublicationFigure(fig, 'finalize');
 
     compData = struct();
     compData.AZ = AZ;

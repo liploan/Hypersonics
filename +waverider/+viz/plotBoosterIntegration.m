@@ -35,8 +35,9 @@ function fig = plotBoosterIntegration(body, varargin)
     NxFrust = surfData.NxFrustumEnd;
     NxTot = surfData.NxTotal;
 
-    fig = figure('Color', 'w', 'Position', [65, 65, 1360, 850], 'Visible', opts.Visible);
-    tl = tiledlayout(fig, 2, 2, 'TileSpacing', 'compact', 'Padding', 'compact');
+    fig = figure('Color', 'w', 'Position', [65, 65, 1400, 880], 'Visible', opts.Visible);
+    waverider.viz.stylePublicationFigure(fig, 'init');
+    tl = tiledlayout(fig, 2, 2, 'TileSpacing', 'loose', 'Padding', 'compact');
 
     title(tl, sprintf('Conformal Aft Transition Frustum & Conical Rocket Booster Mount [%s | R_{booster} = %.2f m]', ...
         upper(strrep(cfg.Method, '_', ' ')), cfg.BoosterRadius), ...
@@ -177,12 +178,16 @@ function fig = plotBoosterIntegration(body, varargin)
         'DisplayName', 'Cumulative Volume V(x) [m^3]');
     ylabel(ax4, 'Cumulative Volume [m^3]');
 
-    xline(ax4, L, 'k:', 'Waverider Base (X=L)', 'LineWidth', 1.4, 'HandleVisibility', 'off');
-    xline(ax4, L + Lf, 'k-.', 'Booster Ring', 'LineWidth', 1.4, 'HandleVisibility', 'off');
+    xline(ax4, L, 'k:', 'Waverider Base (X=L)', 'LineWidth', 1.4, ...
+        'LabelVerticalAlignment', 'bottom', 'HandleVisibility', 'off');
+    xline(ax4, L + Lf, 'k-.', 'Booster Ring', 'LineWidth', 1.4, ...
+        'LabelVerticalAlignment', 'bottom', 'HandleVisibility', 'off');
 
     grid(ax4, 'on');
     xlabel(ax4, 'Axial Station X [m]');
     title(ax4, sprintf('Full-Stack Area & Volume Distribution (Total Vol = %.2f m^3)', ...
         rep.EnclosedVolume), 'FontWeight', 'bold');
     legend(ax4, 'Location', 'northwest', 'FontSize', 8);
+
+    waverider.viz.stylePublicationFigure(fig, 'finalize');
 end

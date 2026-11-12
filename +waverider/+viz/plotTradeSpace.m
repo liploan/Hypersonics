@@ -65,8 +65,9 @@ function [fig, tradeData] = plotTradeSpace(basePreset, varargin)
         AR_p(k) = b.Report.AspectRatio;
     end
 
-    fig = figure('Color', 'w', 'Position', [70, 70, 1340, 840], 'Visible', opts.Visible);
-    tl = tiledlayout(fig, 2, 2, 'TileSpacing', 'compact', 'Padding', 'compact');
+    fig = figure('Color', 'w', 'Position', [70, 70, 1400, 880], 'Visible', opts.Visible);
+    waverider.viz.stylePublicationFigure(fig, 'init');
+    tl = tiledlayout(fig, 2, 2, 'TileSpacing', 'loose', 'Padding', 'compact');
     title(tl, sprintf('Parametric Design Space & Pareto Trade-Offs [%s | M = %.1f, L = %.1f m]', ...
         upper(strrep(baseCfg.Method, '_', ' ')), baseCfg.Mach, baseCfg.Length), ...
         'FontSize', 14, 'FontWeight', 'bold');
@@ -81,9 +82,9 @@ function [fig, tradeData] = plotTradeSpace(basePreset, varargin)
     cb1 = colorbar(ax1);
     cb1.Label.String = 'Inviscid L/D (\alpha = 0^\circ)';
 
-    [C_eta, h_eta] = contour(ax1, BETA, CANOPY, ETAV_grid, 7, 'w--', ...
-        'LineWidth', 1.5, 'DisplayName', '\eta_V Iso-Contours');
-    clabel(C_eta, h_eta, 'Color', 'w', 'FontSize', 8, 'FontWeight', 'bold');
+    [C_eta, h_eta] = contour(ax1, BETA, CANOPY, ETAV_grid, 7, '--', ...
+        'LineColor', [0.06, 0.09, 0.16], 'LineWidth', 1.6, 'DisplayName', '\eta_V Iso-Contours');
+    clabel(C_eta, h_eta, 'Color', [0.06, 0.09, 0.16], 'FontSize', 8.5, 'FontWeight', 'bold');
     plot(ax1, baseCfg.ShockAngleDeg, baseCfg.CanopyHeightRatio, 'kp', ...
         'MarkerSize', 13, 'MarkerFaceColor', 'y', 'DisplayName', 'Baseline Preset');
 
@@ -97,8 +98,8 @@ function [fig, tradeData] = plotTradeSpace(basePreset, varargin)
     % ---------------------------------------------------------------------
     ax2 = nexttile(tl, 2);
     hold(ax2, 'on');
-    [C_vol, h_vol] = contourf(ax2, BETA, CANOPY, VOL_grid, 14);
-    clabel(C_vol, h_vol, 'FontSize', 8);
+    [C_vol, h_vol] = contourf(ax2, BETA, CANOPY, VOL_grid, 14, 'LineColor', [0.15, 0.20, 0.28]);
+    clabel(C_vol, h_vol, 'Color', [0.06, 0.09, 0.16], 'FontSize', 8.5, 'FontWeight', 'bold');
     cb2 = colorbar(ax2);
     cb2.Label.String = 'Enclosed Volume V [m^3]';
     plot(ax2, baseCfg.ShockAngleDeg, baseCfg.CanopyHeightRatio, 'kp', ...
@@ -142,6 +143,8 @@ function [fig, tradeData] = plotTradeSpace(basePreset, varargin)
     xlabel(ax4, 'Planform Power-Law Exponent P (y/b = (x/L)^P) [-]');
     title(ax4, 'Planform Leading-Edge Exponent Sensitivity', 'FontWeight', 'bold');
     legend(ax4, 'Location', 'best', 'FontSize', 8);
+
+    waverider.viz.stylePublicationFigure(fig, 'finalize');
 
     tradeData = struct('BETA', BETA, 'CANOPY', CANOPY, ...
         'LD', LD_grid, 'EtaV', ETAV_grid, 'Volume', VOL_grid, ...

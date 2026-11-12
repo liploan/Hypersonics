@@ -19,8 +19,9 @@ function fig = plotKeyAttributes(body, varargin)
     % Always compute exact Taylor-Maccoll profile at design (Mach, ShockAngleDeg)
     tm = waverider.flow.taylorMaccoll(cfg.Mach, cfg.ShockAngleDeg, cfg.Gamma);
 
-    fig = figure('Color', 'w', 'Position', [80, 80, 1340, 840], 'Visible', opts.Visible);
-    tl = tiledlayout(fig, 2, 2, 'TileSpacing', 'compact', 'Padding', 'compact');
+    fig = figure('Color', 'w', 'Position', [80, 80, 1400, 880], 'Visible', opts.Visible);
+    waverider.viz.stylePublicationFigure(fig, 'init');
+    tl = tiledlayout(fig, 2, 2, 'TileSpacing', 'loose', 'Padding', 'compact');
 
     title(tl, sprintf('Waverider Key Aerodynamic, Flowfield & Geometric Attributes [%s | M = %.1f, \\beta = %.1f^\\circ]', ...
         upper(strrep(cfg.Method, '_', ' ')), cfg.Mach, cfg.ShockAngleDeg), ...
@@ -44,9 +45,11 @@ function fig = plotKeyAttributes(body, varargin)
     ylabel(ax1, 'Shock-Layer Local Mach Number [-]');
 
     xline(ax1, tm.thetaConeDeg, 'k:', sprintf('Cone \\theta_c = %.2f^\\circ', tm.thetaConeDeg), ...
-        'LineWidth', 1.4, 'LabelVerticalAlignment', 'bottom', 'HandleVisibility', 'off');
+        'LineWidth', 1.4, 'LabelVerticalAlignment', 'bottom', 'LabelHorizontalAlignment', 'right', ...
+        'HandleVisibility', 'off');
     xline(ax1, tm.betaDeg, 'r:', sprintf('Shock \\beta = %.2f^\\circ', tm.betaDeg), ...
-        'LineWidth', 1.4, 'LabelVerticalAlignment', 'bottom', 'HandleVisibility', 'off');
+        'LineWidth', 1.4, 'LabelVerticalAlignment', 'bottom', 'LabelHorizontalAlignment', 'left', ...
+        'HandleVisibility', 'off');
 
     grid(ax1, 'on');
     xlabel(ax1, 'Conical Polar Ray Angle \theta [deg]');
@@ -75,7 +78,9 @@ function fig = plotKeyAttributes(body, varargin)
         'DisplayName', sprintf('Peak L/D = %.2f at \\alpha = %.1f^\\circ', maxLD, alphaOpt));
     ylabel(ax2, 'Inviscid Lift-to-Drag Ratio L/D [-]');
 
-    xline(ax2, 0.0, 'k:', 'Design \alpha = 0^\circ', 'LineWidth', 1.2, 'HandleVisibility', 'off');
+    xline(ax2, 0.0, 'k:', 'Design \alpha = 0^\circ', 'LineWidth', 1.3, ...
+        'LabelVerticalAlignment', 'bottom', 'LabelHorizontalAlignment', 'right', ...
+        'HandleVisibility', 'off');
     grid(ax2, 'on');
     xlabel(ax2, 'Angle of Attack \alpha [deg]');
     title(ax2, sprintf('Hypersonic Inviscid Aerodynamic Polar (L/D|_{\\alpha=0} = %.2f)', ...
@@ -119,6 +124,7 @@ function fig = plotKeyAttributes(body, varargin)
         'FaceColor', 'flat', 'EdgeColor', 'none', 'FaceAlpha', 0.95, ...
         'DisplayName', 'Surface Face C_p');
     colormap(ax4, 'turbo');
+    clim(ax4, [min(CpFace), max(max(CpFace), min(CpFace) + 1e-4)]);
     cb4 = colorbar(ax4);
     cb4.Label.String = 'Surface Pressure Coefficient C_p (\alpha = 0^\circ)';
 
@@ -129,7 +135,7 @@ function fig = plotKeyAttributes(body, varargin)
     idxQ = 1:step:size(F, 1);
     quiver3(ax4, fc(idxQ, 1), fc(idxQ, 2), fc(idxQ, 3), ...
         fn(idxQ, 1), fn(idxQ, 2), fn(idxQ, 3), 0.45, ...
-        'Color', [0.15, 0.15, 0.15], 'LineWidth', 0.8, ...
+        'Color', [0.08, 0.12, 0.22], 'LineWidth', 0.95, ...
         'DisplayName', 'Outward Unit Normals');
 
     axis(ax4, 'equal');
@@ -139,4 +145,6 @@ function fig = plotKeyAttributes(body, varargin)
     title(ax4, sprintf('3D Face C_p & Verified Outward Manifold Normals (\\chi = %d)', ...
         body.Report.EulerCharacteristic), 'FontWeight', 'bold');
     legend(ax4, 'Location', 'southwest', 'FontSize', 8);
+
+    waverider.viz.stylePublicationFigure(fig, 'finalize');
 end

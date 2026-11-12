@@ -25,11 +25,11 @@ function [figComp, figTrade] = plot_family_comparison(visibleMode)
 
     figComp = waverider.viz.plotFamilyComparison(bodies, 'Visible', visibleMode);
     compPath = fullfile(outDir, 'waverider_family_comparison.png');
-    exportgraphics(figComp, compPath, 'Resolution', 180);
+    waverider.viz.exportFigurePNG(figComp, compPath, 200);
     fprintf('Saved 4-Family Comparison figure to: %s\n', compPath);
 
     figTrade = waverider.viz.plotTradeSpace('osculating_cone', 'Visible', visibleMode);
     tradePath = fullfile(outDir, 'waverider_trade_space.png');
-    exportgraphics(figTrade, tradePath, 'Resolution', 180);
+    waverider.viz.exportFigurePNG(figTrade, tradePath, 200);
     fprintf('Saved Parametric Trade Space figure to: %s\n', tradePath);
 end

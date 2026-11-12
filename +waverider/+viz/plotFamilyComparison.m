@@ -26,8 +26,9 @@ function fig = plotFamilyComparison(bodies, varargin)
         colors = lines(nB);
     end
 
-    fig = figure('Color', 'w', 'Position', [60, 60, 1360, 840], 'Visible', opts.Visible);
-    tl = tiledlayout(fig, 2, 2, 'TileSpacing', 'compact', 'Padding', 'compact');
+    fig = figure('Color', 'w', 'Position', [60, 60, 1400, 880], 'Visible', opts.Visible);
+    waverider.viz.stylePublicationFigure(fig, 'init');
+    tl = tiledlayout(fig, 2, 2, 'TileSpacing', 'loose', 'Padding', 'compact');
     title(tl, 'Comparative Geometry & Key Attributes Across Hypersonic Waverider Families', ...
         'FontSize', 14, 'FontWeight', 'bold');
 
@@ -93,7 +94,9 @@ function fig = plotFamilyComparison(bodies, varargin)
         plot(ax3, pol.AlphaDeg, pol.LD_inviscid, '-', 'Color', colors(k, :), 'LineWidth', 2.3, ...
             'DisplayName', sprintf('%s (M=%.1f, (L/D)_{max}=%.2f)', labels{k}, b.Config.Mach, peakLD(k)));
     end
-    xline(ax3, 0.0, 'k:', 'Design \alpha = 0^\circ', 'LineWidth', 1.2, 'HandleVisibility', 'off');
+    xline(ax3, 0.0, 'k:', 'Design \alpha = 0^\circ', 'LineWidth', 1.3, ...
+        'LabelVerticalAlignment', 'bottom', 'LabelHorizontalAlignment', 'right', ...
+        'HandleVisibility', 'off');
     grid(ax3, 'on');
     xlabel(ax3, 'Angle of Attack \alpha [deg]');
     ylabel(ax3, 'Inviscid Lift-to-Drag Ratio L/D [-]');
@@ -129,4 +132,6 @@ function fig = plotFamilyComparison(bodies, varargin)
     title(ax4, 'Key Performance & Geometric Attribute Comparison', 'FontWeight', 'bold');
     legend(ax4, {'30 \times \eta_V (Vol. Eff.)', '(L/D)_{\alpha=0^\circ}', '(L/D)_{max}', 'S_{wet} / S_{plan}'}, ...
         'Location', 'northeast', 'FontSize', 8);
+
+    waverider.viz.stylePublicationFigure(fig, 'finalize');
 end

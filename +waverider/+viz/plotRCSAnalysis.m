@@ -47,8 +47,9 @@ function [fig, summaryMetrics] = plotRCSAnalysis(body, varargin)
     rcsFreq = waverider.rcs.computeRCS(body, freqSweepGHz, aspectAz, aspectEl, ...
         'PrecomputedConcavePairs', cp);
 
-    fig = figure('Color', 'w', 'Position', [55, 55, 1380, 860], 'Visible', opts.Visible);
-    tl = tiledlayout(fig, 2, 2, 'TileSpacing', 'compact', 'Padding', 'compact');
+    fig = figure('Color', 'w', 'Position', [55, 55, 1420, 890], 'Visible', opts.Visible);
+    waverider.viz.stylePublicationFigure(fig, 'init');
+    tl = tiledlayout(fig, 2, 2, 'TileSpacing', 'loose', 'Padding', 'compact');
 
     title(tl, sprintf('Multi-Band RCS & Concave Underside Scattering Analysis (UHF to X-Band) [%s | L = %.1f m]', ...
         upper(strrep(cfg.Method, '_', ' ')), cfg.Length), ...
@@ -65,7 +66,8 @@ function [fig, summaryMetrics] = plotRCSAnalysis(body, varargin)
         plot(ax1, azVec, sigSmooth, '-', 'Color', bandColors(b, :), 'LineWidth', 2.0, ...
             'DisplayName', bandNames{b});
     end
-    xline(ax1, 68.0, 'k:', 'LE Normal Specular', 'LineWidth', 1.2, 'HandleVisibility', 'off');
+    xline(ax1, 68.0, 'k:', 'LE Normal Specular', 'LineWidth', 1.3, ...
+        'LabelVerticalAlignment', 'bottom', 'HandleVisibility', 'off');
     grid(ax1, 'on');
     xlim(ax1, [0, 180]);
     xlabel(ax1, 'Azimuth Angle \psi [deg] (0^\circ = Nose-On, 90^\circ = Broadside, 180^\circ = Tail)');
@@ -89,7 +91,8 @@ function [fig, summaryMetrics] = plotRCSAnalysis(body, varargin)
         plot(ax2, elVec, sngCurve, '--', 'Color', elColors(k, :), 'LineWidth', 1.4, ...
             'DisplayName', sprintf('%s Single-Bounce Only', elFreqNames{k}));
     end
-    xline(ax2, 0.0, 'k-', 'Horizon (\theta_{el} = 0^\circ)', 'LineWidth', 1.4, 'HandleVisibility', 'off');
+    xline(ax2, 0.0, 'k-', 'Horizon (\theta_{el} = 0^\circ)', 'LineWidth', 1.4, ...
+        'LabelVerticalAlignment', 'bottom', 'HandleVisibility', 'off');
     grid(ax2, 'on');
     xlim(ax2, [-90, 90]);
     xlabel(ax2, 'Elevation Angle \theta_{el} [deg] (< 0^\circ Ventral Concave Underside | > 0^\circ Dorsal Canopy)');
@@ -172,6 +175,8 @@ function [fig, summaryMetrics] = plotRCSAnalysis(body, varargin)
     title(ax4, sprintf('3D Ventral View: Concave Cavity & %d Double-Bounce Pairs', cp.numPairs), ...
         'FontWeight', 'bold');
     legend(ax4, 'Location', 'southwest', 'FontSize', 8);
+
+    waverider.viz.stylePublicationFigure(fig, 'finalize');
 
     summaryMetrics = struct();
     summaryMetrics.BandFreqsGHz = bandFreqsGHz;

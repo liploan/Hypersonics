@@ -54,21 +54,21 @@ function [figBands, figConcavity, rcsReport] = explore_waverider_rcs(presetName,
     % Render & Export Figure 1: Multi-Band UHF-to-X-Band RCS & 3D Concave Ray-Bounce Dashboard
     [figBands, summaryMetrics] = waverider.viz.plotRCSAnalysis(body, 'Visible', visibleMode);
     f1Path = fullfile(outDir, sprintf('waverider_rcs_uhf_to_xband_%s.png', presetName));
-    exportgraphics(figBands, f1Path, 'Resolution', 180);
+    waverider.viz.exportFigurePNG(figBands, f1Path, 200);
     fprintf('Saved Multi-Band RCS Analysis figure to    : %s\n', f1Path);
 
     % Render & Export Figure 2: 2D Az-El Sphere, Multi-Bounce Gain, 4-Family & Anhedral Trade-Off
     [figConcavity, compData] = waverider.viz.plotRCSConcavityComparison(body, 'Visible', visibleMode);
     f2Path = fullfile(outDir, 'waverider_rcs_family_concavity.png');
-    exportgraphics(figConcavity, f2Path, 'Resolution', 180);
+    waverider.viz.exportFigurePNG(figConcavity, f2Path, 200);
     fprintf('Saved Concavity Comparison & Trade figure  : %s\n', f2Path);
 
     % Render & Export Figure 3: Range-Angle-Intensity (Sinogram) & Waveform Bandwidth Analysis
     f3Path = fullfile(outDir, 'waverider_range_angle_intensity.png');
     figRTI = waverider.viz.plotRangeAngleIntensity(body, ...
         'CenterFreqGHz', 10.0, 'BandwidthMHz', 1000.0, ...
-        'ElevationDeg', -22.0, 'CutAzimuthDeg', 45.0, 'SavePath', f3Path);
-    set(figRTI, 'Visible', visibleMode);
+        'ElevationDeg', -22.0, 'CutAzimuthDeg', 45.0, ...
+        'Visible', visibleMode, 'SavePath', f3Path);
     fprintf('Saved Range-Angle-Intensity (RTI) figure   : %s\n', f3Path);
 
     rcsReport = struct('SummaryMetrics', summaryMetrics, 'ComparisonData', compData, 'FigRTI', figRTI);

@@ -25,6 +25,6 @@ function fig = plot_key_attributes(presetName, visibleMode)
     fig = body.plotKeyAttributes('Visible', visibleMode);
 
     outPath = fullfile(outDir, sprintf('key_attributes_%s.png', presetName));
-    exportgraphics(fig, outPath, 'Resolution', 180);
+    waverider.viz.exportFigurePNG(fig, outPath, 200);
     fprintf('Saved Key Attributes Dashboard figure to: %s\n', outPath);
 end

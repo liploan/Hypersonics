@@ -22,8 +22,9 @@ function fig = plotWaverider(body, varargin)
     rep = body.Report;
     NxWave = surfData.NxWaverider;
 
-    fig = figure('Color', 'w', 'Position', [80, 80, 1280, 820], 'Visible', opts.Visible);
-    tl = tiledlayout(fig, 2, 2, 'TileSpacing', 'compact', 'Padding', 'compact');
+    fig = figure('Color', 'w', 'Position', [70, 70, 1400, 880], 'Visible', opts.Visible);
+    waverider.viz.stylePublicationFigure(fig, 'init');
+    tl = tiledlayout(fig, 2, 2, 'TileSpacing', 'loose', 'Padding', 'compact');
 
     if strlength(string(opts.Title)) > 0
         titleStr = char(opts.Title);
@@ -87,17 +88,20 @@ function fig = plotWaverider(body, varargin)
     % ---------------------------------------------------------------------
     ax2 = nexttile(tl, 2);
     hold(ax2, 'on');
+    cpMin = min(surfData.Cp_low(:));
+    cpMax = max(surfData.Cp_low(:));
     surf(ax2, surfData.X_low, surfData.Y_low, surfData.Z_low, surfData.Cp_low, ...
         'EdgeColor', 'none', 'FaceAlpha', 0.96, 'DisplayName', 'Lower Surface C_p');
     surf(ax2, surfData.X_up, surfData.Y_up, surfData.Z_up, ...
-        'FaceColor', [0.75, 0.80, 0.86], 'EdgeColor', 'none', 'FaceAlpha', 0.30, ...
+        'FaceColor', [0.72, 0.78, 0.86], 'EdgeColor', 'none', 'FaceAlpha', 0.32, ...
         'DisplayName', 'Upper Envelope');
     if opts.ShowShock
         surf(ax2, surfData.X_shock, surfData.Y_shock, surfData.Z_shock, ...
-            'FaceColor', [0.92, 0.18, 0.25], 'EdgeColor', 'none', 'FaceAlpha', 0.22, ...
+            'FaceColor', [0.90, 0.18, 0.24], 'EdgeColor', 'none', 'FaceAlpha', 0.22, ...
             'DisplayName', 'Attached Shock Sheet');
     end
     colormap(ax2, 'turbo');
+    clim(ax2, [cpMin, max(cpMax, cpMin + 1e-4)]);
     cb = colorbar(ax2);
     cb.Label.String = 'Compression C_p';
     axis(ax2, 'equal');
@@ -177,4 +181,6 @@ function fig = plotWaverider(body, varargin)
     title(ax4, sprintf('Centerline Profile (Y = 0) | S_{plan} = %.2f m^2, AR = %.2f', ...
         rep.PlanformArea, rep.AspectRatio), 'FontWeight', 'bold');
     legend(ax4, 'Location', 'southoutside', 'Orientation', 'horizontal', 'FontSize', 8);
+
+    waverider.viz.stylePublicationFigure(fig, 'finalize');
 end

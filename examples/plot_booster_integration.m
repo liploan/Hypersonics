@@ -31,12 +31,12 @@ function [figBoost, figOverview, body] = plot_booster_integration(visibleMode)
     % 1. Dedicated 4-panel Booster Integration Figure
     figBoost = body.plotBoosterIntegration('Visible', visibleMode);
     boostPng = fullfile(outDir, 'waverider_booster_integration.png');
-    exportgraphics(figBoost, boostPng, 'Resolution', 180);
+    waverider.viz.exportFigurePNG(figBoost, boostPng, 200);
     fprintf('Saved Booster Integration figure to    : %s\n', boostPng);
 
     % 2. Standard 4-panel Overview Figure with Frustum & Rocket Stage
     figOverview = body.plot('Visible', visibleMode);
     ovPng = fullfile(outDir, 'waverider_booster_mounted_overview.png');
-    exportgraphics(figOverview, ovPng, 'Resolution', 180);
+    waverider.viz.exportFigurePNG(figOverview, ovPng, 200);
     fprintf('Saved Booster Overview figure to       : %s\n', ovPng);
 end

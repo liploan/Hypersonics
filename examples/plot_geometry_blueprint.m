@@ -25,6 +25,6 @@ function fig = plot_geometry_blueprint(presetName, visibleMode)
     fig = body.plotGeometryLines('Visible', visibleMode);
 
     outPath = fullfile(outDir, sprintf('geometry_blueprint_%s.png', presetName));
-    exportgraphics(fig, outPath, 'Resolution', 180);
+    waverider.viz.exportFigurePNG(fig, outPath, 200);
     fprintf('Saved Geometry Lofting Blueprint figure to: %s\n', outPath);
 end
