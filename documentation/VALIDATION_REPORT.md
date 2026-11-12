@@ -64,7 +64,7 @@ Two small point-like facets separated by $2.000\text{ m}$ along $X$ at $f_c = 10
 
 | Check | Theoretical Harris (1978) Benchmark [19] | Tolerance | MATLAB Result | Web JS Result | Status |
 | :--- | :--- | :---: | :---: | :---: | :---: |
-| **D1** Peak positions (`rect` / `hann`) | Exact scatterer down-range coordinates | $< 1\text{ cm}$ | $0.04\text{ cm}$ | $0.03–0.04\text{ cm}$ | **PASS** |
+| **D1** Peak positions (`rect` / `hann`) | Exact scatterer down-range coordinates | $< 1\text{ cm}$ | $0.04\text{ cm}$ | $0.03\text{--}0.04\text{ cm}$ | **PASS** |
 | **D2** $-3\text{ dB}$ width (`rect` / `hann`) | $0.886\,\Delta R = 13.28\text{ cm}$ / $1.44\,\Delta R = 21.59\text{ cm}$ | $\pm 8\%$ | $13.41 / 21.74\text{ cm}$ | $13.41 / 21.74\text{ cm}$ | **PASS** |
 | **D3** Peak sidelobe (`rect` / `hann`) | $-13.26\text{ dB}$ / $-31.5\text{ dB}$ | $\pm 2.0\text{ dB}$ | $-13.3 / -31.4\text{ dB}$ | $-13.3 / -31.4\text{ dB}$ | **PASS** |
 | **D4** Unphysical $B > f_c$ guard | Rejects $B = 1000\text{ MHz}$ at $f_c = 0.5\text{ GHz}$ | Throws error | Verified | `RangeError` | **PASS** |
@@ -76,5 +76,5 @@ Two small point-like facets separated by $2.000\text{ m}$ along $X$ at $f_c = 10
 | :--- | :--- | :---: | :---: | :---: | :---: |
 | **E1** Nonweiler caret theorem | $C_L = C_{p,2}$, $C_{D,w} = C_{p,2}\tan\delta$, $L/D = \cot\delta$ [6] | $< 10^{-11}$ | $1.2\times 10^{-14}$ | $3.82\times 10^{-14}$ | **PASS** |
 | **E2** Off-design calibration | `computeAeroPolar(0) == AeroMetrics` across all presets | $< 10^{-13}$ | $0.00$ | $0.00$ | **PASS** |
-| **E3** Bilateral symmetry | $|C_Y| = 0$ and $\sigma(+\psi) = \sigma(-\psi)$ | $< 10^{-11}\text{ dB}$ | $1.8\times 10^{-12}\text{ dB}$ | $1.76\times 10^{-12}\text{ dB}$ | **PASS** |
+| **E3** Bilateral symmetry | $\lvert C_Y\rvert = 0$ and $\sigma(+\psi) = \sigma(-\psi)$ | $< 10^{-11}\text{ dB}$ | $1.8\times 10^{-12}\text{ dB}$ | $1.76\times 10^{-12}\text{ dB}$ | **PASS** |
 | **E4** Full Web Studio latency | Mesh + 5-band Az + 3-band El + 61-angle RTI (`booster_mounted`) | $< 250\text{ ms}$ | N/A | **$159.4\text{ ms}$** | **PASS** |

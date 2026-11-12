@@ -21,7 +21,7 @@ A physics-validated MATLAB package (`+waverider/`) and zero-dependency client-si
 1. **Four Physics-Based Waverider Families**:
    - **Axisymmetric Cone-Derived (`'conical'`)**: Integrates the exact axisymmetric irrotational **Taylor–Maccoll ODE** (`+waverider/+flow/taylorMaccoll.m`, `docs/physics.js`) inward from the generating shock cone $\theta = \beta$ to $\theta = \theta_c$ and traces 3D streamlines along exact meridian planes from the conical shock sheet.
    - **Sobieczky Inverse Osculating Cones (`'osculating_cone'`)**: Parameterizes the aft Inlet Capture Curve (ICC) with a flat centerbody shock segment and $C^2$-regularized power-law outer shock wings, tracing local Taylor–Maccoll streamlines in osculating planes with a differential-geometry **evolute caustic guard** ($d_{\text{LE}} \le 0.82\,R_c$) that prevents osculating-plane intersection.
-   - **Nonweiler Caret / Planar Wedge (`'caret'`)**: Uses exact Rankine–Hugoniot $\theta\text{–}\beta\text{–}M$ oblique-shock relations (`+waverider/+flow/obliqueShock.m`) to construct planar compression facets satisfying $C_L = C_{p,2}$, $C_{D,\text{wave}} = C_{p,2}\tan\delta$, and $L/D = \cot\delta$ to machine precision.
+   - **Nonweiler Caret / Planar Wedge (`'caret'`)**: Uses exact Rankine–Hugoniot $\theta$-$\beta$-$M$ oblique-shock relations (`+waverider/+flow/obliqueShock.m`) to construct planar compression facets satisfying $C_L = C_{p,2}$, $C_{D,\text{wave}} = C_{p,2}\tan\delta$, and $L/D = \cot\delta$ to machine precision.
    - **Kulfan CST Boost-Glide Body (`'cst'`)**: Uses Bernstein Class-Shape Transformation polynomials (`+waverider/+geometry/generateCSTBody.m`) longitudinally and spanwise with modified Newtonian + Prandtl–Meyer surface pressures.
 
 2. **Conformal Aft Booster Frustum & Guaranteed 2-Manifold Watertight Topology**:
@@ -42,7 +42,7 @@ All solvers in both MATLAB (`+waverider/`) and JavaScript (`docs/physics.js`) ar
 | Validation Suite | Checks | Scope & Key Quantitative Benchmarks |
 | :--- | :---: | :--- |
 | [`tests/test_waverider_suite.m`](tests/test_waverider_suite.m) | **12 / 12 PASS** | Preset instantiation, 2-manifold edge pairing, $\chi = 2$, STL/OBJ export integrity |
-| [`tests/test_physics_validation.m`](tests/test_physics_validation.m) | **23 / 23 PASS** | Taylor–Maccoll vs. SciPy ($\max|\Delta\theta_c| = 1.9\times 10^{-6\circ}$) & NACA-1135 ($\beta = 37.796^\circ$ vs. $37.80^\circ$); 42-config manifold + generalized winding number ($\max|W-\{0,1\}|=0.000$) + Monte-Carlo volume; PEC plate $\text{sinc}^2$ ($0.00\text{ dB}$), PEC sphere ($0.04\text{ dB}$), $90^\circ$ dihedral ($+0.03\text{ dB}$); Harris HRRP widths & sidelobes; Nonweiler $L/D = \cot\delta$ ($1.2\times 10^{-14}$ error) |
+| [`tests/test_physics_validation.m`](tests/test_physics_validation.m) | **23 / 23 PASS** | Taylor–Maccoll vs. SciPy ($\max\lvert\Delta\theta_c\rvert = 1.9\times 10^{-6\circ}$) & NACA-1135 ($\beta = 37.796^\circ$ vs. $37.80^\circ$); 42-config manifold + generalized winding number ($\max\lvert W-\{0,1\}\rvert=0.000$) + Monte-Carlo volume; PEC plate $\mathrm{sinc}^2$ ($0.00\text{ dB}$), PEC sphere ($0.04\text{ dB}$), $90^\circ$ dihedral ($+0.03\text{ dB}$); Harris HRRP widths & sidelobes; Nonweiler $L/D = \cot\delta$ ($1.2\times 10^{-14}$ error) |
 | [`tests/web/validate_physics.mjs`](tests/web/validate_physics.mjs) | **26 / 26 PASS** | Full Node.js parity with all 23 MATLAB physics checks plus sub-Mach & $B > f_c$ guardrails and $159\text{ ms}$ full-dashboard interactive frame budget |
 
 ---

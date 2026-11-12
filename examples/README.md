@@ -14,7 +14,7 @@ All scripts in `examples/` are self-contained and automatically call `setup_wave
 | [`plot_key_attributes.m`](plot_key_attributes.m) | Plots Taylor–Maccoll conical shock-layer profiles ($C_p(\theta), M(\theta), u_\theta(\theta)$), calibrated angle-of-attack aerodynamic polars, spanwise lift distribution, and 3D outward unit normals (`output/key_attributes_*.png`). |
 | [`plot_family_comparison.m`](plot_family_comparison.m) | Renders a side-by-side 4-family geometric, volumetric, and aerodynamic comparison dashboard (`output/waverider_family_comparison.png`). |
 | [`plot_booster_integration.m`](plot_booster_integration.m) | Demonstrates conformal aft transition frustums (`'cubic'`, `'quintic'`, `'linear'`, `'conic'`) mating an osculating-cone waverider to a circular booster adapter and conical rocket stage (`output/waverider_booster_integration.png`). |
-| [`explore_waverider_rcs.m`](explore_waverider_rcs.m) | Performs full UHF-to-X-band ($0.5\text{–}10\text{ GHz}$) Gordon PO + GO-PO concave underside multi-bounce RCS sweeps, 2D Az–El RCS spheres, and wideband Range–Angle–Intensity (RTI) / HRRP bandwidth comparisons (`output/waverider_rcs_*.png`, `output/waverider_range_angle_intensity.png`). |
+| [`explore_waverider_rcs.m`](explore_waverider_rcs.m) | Performs full UHF-to-X-band (0.5–10 GHz) Gordon PO + GO-PO concave underside multi-bounce RCS sweeps, 2D Az–El RCS spheres, and wideband Range–Angle–Intensity (RTI) / HRRP bandwidth comparisons (`output/waverider_rcs_*.png`, `output/waverider_range_angle_intensity.png`). |
 
 ---
 

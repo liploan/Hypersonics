@@ -17,7 +17,7 @@ Value-validated parametric configuration object defining flow conditions, forebo
 cfg = waverider.WaveriderConfig('Name', Value, ...);
 cfg = waverider.WaveriderConfig.fromPreset(presetName);
 % presetName: 'conical' | 'osculating_cone' | 'caret' | 'cst' | 'booster_mounted'
-cfg.validate(); % Checksbeta > asin(1/Mach) + 0.15 deg and geometric consistency
+cfg.validate(); % Checks beta > asind(1/Mach) + 0.15 deg and geometric consistency
 ```
 
 #### Key Properties
@@ -94,11 +94,11 @@ body.exportOBJ('output/model.obj');
 - `waverider.mesh.exportOBJ(V, F, patchID, filename)` — Patch-grouped Wavefront `.obj` exporter.
 
 ### 2.4 `+waverider/+rcs`
-- `I = waverider.rcs.facetPhaseIntegral(V, F, w)` — Exact vectorized Gordon (1975) triangle contour phase integral $\iint_{T_f} e^{i\mathbf{w}\cdot\mathbf{r}}\,dA$ for an $M \times 3$ wavevector array `w`.
+- `I = waverider.rcs.facetPhaseIntegral(v1, v2, v3, nHat, w)` — Exact vectorized Gordon (1975) triangle contour phase integral $\iint_{T_f} e^{i\mathbf{w}\cdot\mathbf{r}}\,dA$ for an $N_D \times 3$ wavevector array `w`.
 - `pairs = waverider.rcs.buildConcavePairList(body)` — Builds mirror-symmetric planar CCW super-cells on the lower compression surface and enumerates mutually visible concave pairs.
-- `[E_mb, contrib] = waverider.rcs.doubleBounceGOPO(pairs, u_hat, k0)` — Exact Sutherland–Hodgman clipped GO-PO two-bounce cavity solver returning total complex scattering amplitude `E_mb` and per-patch `[amp, L_half, r_O]` rows.
-- `rcs = waverider.rcs.computeRCS(body, 'FrequenciesGHz', ..., 'AzimuthDeg', ..., 'ElevationDeg', ..., 'IncludeMultiBounce', true, 'IncludeEdgeDiffraction', true, 'Compute2DSphere', true)` — Full multi-band monostatic RCS sweep.
-- `rti = waverider.rcs.computeRangeProfile(body, 'CenterFreqGHz', 10.0, 'BandwidthMHz', 1000, 'ElevationDeg', -22, 'AzimuthDeg', 0:2:180, 'Window', 'hann')` — Wideband stepped-frequency / matched-filter RTI sinogram and 1D HRRP solver (enforces $B \le f_c$).
+- `[S_mb, contrib] = waverider.rcs.doubleBounceGOPO(pairs, uRadar, k0, wantContrib)` — Exact Sutherland–Hodgman clipped GO-PO two-bounce cavity solver returning total complex scattering amplitude `S_mb` and per-patch `[amp, L_half, r_O]` rows.
+- `rcs = waverider.rcs.computeRCS(body, freqGHz, azDeg, elDeg, 'IncludeMultiBounce', true, 'IncludeEdgeDiffraction', false)` — Full multi-band monostatic RCS sweep.
+- `rti = waverider.rcs.computeRangeProfile(body, freqGHz, bandwidthMHz, azVecDeg, elDeg, 'IncludeMultiBounce', true, 'WindowType', 'hann')` — Wideband stepped-frequency / matched-filter RTI sinogram and 1D HRRP solver (enforces $B \le f_c$).
 
 ### 2.5 `+waverider/+viz`
 - `plotWaverider`, `plotGeometryLines`, `plotKeyAttributes`, `plotFamilyComparison`, `plotTradeSpace`, `plotBoosterIntegration`, `plotRCSAnalysis`, `plotRCSConcavityComparison`, `plotRangeAngleIntensity`.

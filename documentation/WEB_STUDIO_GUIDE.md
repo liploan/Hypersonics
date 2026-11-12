@@ -63,7 +63,11 @@ To evaluate **exact** Gordon (1975) contour Physical Optics + Sutherland–Hodgm
 
 1. **Shared Vertex-Phasor Gordon Integration (`prepareLitPOGeometry` + `evaluateLitPOAtK`)**:
    Using the exact analytical edge identity
-   $$\operatorname{sinc}_{\text{rad}}\!\left(\frac{\phi_b - \phi_a}{2}\right) e^{i(\phi_a + \phi_b)/2} = \frac{e^{i\phi_b} - e^{i\phi_a}}{i(\phi_b - \phi_a)}$$
+
+   $$
+   \mathrm{sinc}_{\text{rad}}\!\left(\frac{\phi_b - \phi_a}{2}\right) e^{i(\phi_a + \phi_b)/2} = \frac{e^{i\phi_b} - e^{i\phi_a}}{i(\phi_b - \phi_a)}
+   $$
+
    (with a 3-term machine-precision Taylor expansion when $|\phi_b - \phi_a| < 10^{-3}$), `Math.cos` and `Math.sin` are evaluated **once per unique illuminated vertex** rather than 9 times per triangle—eliminating $>85\%$ of transcendental operations with zero approximation error.
 2. **Zero-Allocation Ping-Pong Polygon Clipping (`clipQuadIntoFlatBuffer`)**:
    Pre-allocated static `Float64Array` ping-pong buffers, exact ray-cylinder culling ($|(\mathbf{r}_Q - \mathbf{r}_P)\times\hat{\mathbf{k}}_r| \le r_P + r_Q$), and 3D AABB pre-rejection eliminate heap garbage collection during multi-angle GO-PO cavity sweeps.
