@@ -16,24 +16,33 @@ Value-validated parametric configuration object defining flow conditions, forebo
 ```matlab
 cfg = waverider.WaveriderConfig('Name', Value, ...);
 cfg = waverider.WaveriderConfig.fromPreset(presetName);
-% presetName: 'conical' | 'osculating_cone' | 'caret' | 'cst' | 'booster_mounted'
-cfg.validate(); % Checks beta > asind(1/Mach) + 0.15 deg and geometric consistency
+% Waverider presets: 'conical' | 'osculating_cone' | 'caret' | 'cst' | 'booster_mounted'
+% Reentry Vehicle (RV) presets: 'rv_monoconic' | 'rv_biconic' | 'rv_triconic_flare' | 'rv_sharp_conic'
+cfg.validate(); % Checks beta > asind(1/Mach) + 0.15 deg (waveriders) or conic/stage bounds (RVs)
 ```
 
 #### Key Properties
 | Property | Default | Domain / Options | Description |
 | :--- | :---: | :--- | :--- |
-| `Method` | `'osculating_cone'` | `'conical'`, `'osculating_cone'`, `'caret'`, `'cst'` | Forebody shock/surface generation method |
+| `Method` | `'osculating_cone'` | `'conical'`, `'osculating_cone'`, `'caret'`, `'cst'`, `'rv'` | Forebody shock/surface or axisymmetric RV generation method |
 | `Mach` | `6.0` | `(1.05, 30]` | Design freestream Mach number $M_\infty$ |
 | `Gamma` | `1.4` | `(1.05, 1.67]` | Specific heat ratio $\gamma$ |
-| `ShockAngleDeg` | `14.0` | `> asind(1/Mach) + 0.15` | Design shock wave angle $\beta$ [deg] |
+| `ShockAngleDeg` | `14.0` | `> asind(1/Mach) + 0.15` | Design shock wave angle $\beta$ [deg] (waverider methods) |
 | `Length` | `5.0` | `> 0` | Forebody axial length $L$ [m] |
-| `HalfSpan` | `1.6` | `> 0` | Forebody half-span $b/2$ [m] |
+| `HalfSpan` | `1.6` | `> 0` | Forebody half-span $b/2$ [m] (waverider methods) |
 | `PlanformPower` | `0.65` | `[0.25, 2.5]` | Leading-edge power exponent $P$ in $Y_{\text{LE}} \propto X_{\text{LE}}^P$ |
 | `LeadingEdgeAnhedralDeg` | `4.0` | `[-35, 35]` | Ventral anhedral / concavity angle $\Gamma_{\text{anh}}$ [deg] |
 | `FlatShockFraction` | `0.25` | `[0, 0.85]` | Flat centerbody shock fraction (`'osculating_cone'`) |
-| `UpperSurfaceType` | `'canopy'` | `'freestream'`, `'canopy'` | Upper surface lofting mode |
+| `UpperSurfaceType` | `'canopy'` | `'freestream'`, `'canopy'` | Upper surface lofting mode (waverider methods) |
 | `CanopyHeightRatio` | `0.045` | `[0, 0.35]` | Peak dorsal canopy height $h/L$ |
+| `RVBodyType` | `'bi_conic'` | `'mono_conic'`, `'bi_conic'`, `'tri_conic'` | Axisymmetric RV conic stage architecture (`Method = 'rv'`) |
+| `RVNoseType` | `'spherical'` | `'conical'`, `'spherical'`, `'ogive'` | Axisymmetric RV nose tip geometry (`Method = 'rv'`) |
+| `RVNoseBluntnessRatio` | `0.18` | `[0.0, 0.80]` | Spherical nose radius $R_N / R_{\text{base}}$ or ogive fullness (`'rv'`) |
+| `RVConeAnglesDeg` | `[11.5, 6.0, 12.0]` | `theta_1 in [1, 55]`, `theta_2,3 in [-12, 55]` | Stage half-angles $[\theta_1, \theta_2, \theta_3]$ [deg] (`'rv'`) |
+| `RVStageFractions` | `[0.42, 0.58, 0.0]` | Nonnegative, positive active sum | Relative axial frustum stage weights (`'rv'`) |
+| `RVAftType` | `'flat'` | `'flat'`, `'concave'` | Aft base bulkhead geometry (`'rv'`) |
+| `RVAftCavityDepthRatio` | `0.35` | `[0.0, 0.85]` | Recessed concave aft depth $d_{\text{aft}} / R_{\text{base}}$ (`'rv'`) |
+| `RVAftCavityPower` | `2.0` | `[1.0, 4.0]` | Recessed aft dome exponent $p$ (`2` = paraboloid, `'rv'`) |
 | `EnableAftFrustum` | `false` | `logical` | Append conformal transition frustum aft of $X = L$ |
 | `FrustumLength` | `1.60` | `> 0` | Axial length $L_f$ of conformal frustum [m] |
 | `BoosterRadius` | `0.70` | `> 0` | Circular booster adapter radius $R_b$ [m] |
@@ -55,11 +64,13 @@ Constructs structured surfaces, stitches the 2-manifold watertight triangulation
 body = waverider.WaveriderBody(cfgOrPresetName);
 body.printSummary();
 polar = body.computeAeroPolar(alphaDegVec); % Off-design AoA polar struct
-rcs   = body.computeRCS('FrequenciesGHz', [0.5 1.5 3 6 10], 'ElevationDeg', -22);
+rcs   = body.computeRCS([0.5 1.5 3 6 10], linspace(0,180,181), -22, 'Polarization', 'HH');
+rti   = body.computeRangeProfile(10.0, 1000, linspace(-90,90,121), -22, 'Polarization', 'OP');
 fig   = body.plot();                        % 4-panel 3D + Cp + base + symmetry view
 fig   = body.plotGeometryLines();           % 3-view lofting ribs & area-rule curve
 fig   = body.plotKeyAttributes();           % TM shock layer, AoA polar & face normals
-fig   = body.plotRCS();                     % Multi-band UHF-to-X-band RCS dashboard
+fig   = body.plotRCS('Polarization', 'HH'); % Multi-band UHF-to-X-band RCS dashboard
+fig   = body.plotRangeAngleIntensity('Polarization', 'OP', 'WindowType', 'hann');
 body.exportSTL('output/model.stl', 'binary');
 body.exportOBJ('output/model.obj');
 ```
@@ -81,12 +92,13 @@ body.exportOBJ('output/model.obj');
 - `[x_s, r_s, Cp_s, M_s] = waverider.flow.traceStreamline(sol, x_shk, r_shk, x_end, nPts)` — Vectorized 4-substep RK4 conical streamline integrator.
 
 ### 2.2 `+waverider/+geometry`
-- `[X_low, Y_low, Z_low, X_shk, Y_shk, Z_shk, Cp_low, flowSol, meta] = waverider.geometry.generateOsculatingCone(cfg)` — Generates `'conical'` and `'osculating_cone'` forebodies (`meta.NumClampedStations` reports evolute caustic clamping).
-- `[X_low, Y_low, Z_low, X_shk, Y_shk, Z_shk, Cp_low, flowSol] = waverider.geometry.generateCaretWedge(cfg)` — Generates exact Nonweiler `'caret'` compression surfaces.
-- `[X_low, Y_low, Z_low, X_shk, Y_shk, Z_shk, Cp_low, flowSol] = waverider.geometry.generateCSTBody(cfg)` — Generates Kulfan `'cst'` boost-glide surfaces.
-- `[X_up, Y_up, Z_up] = waverider.geometry.buildUpperSurface(X_low, Y_low, Z_low, cfg)` — Builds freestream or dorsal-canopy upper surfaces sharing exact leading-edge and wingtip boundaries.
-- `[X_up, Y_up, Z_up, X_low, Y_low, Z_low, Cp_low, info] = waverider.geometry.appendConformalFrustum(...)` — Appends conformal transition frustum and optional conical rocket stage.
-- `[V, F, patchID, faceCpDesign] = waverider.geometry.stitchWatertightMesh(X_up, Y_up, Z_up, X_low, Y_low, Z_low, numBaseLayers, splitIndices, Cp_low)` — Mirror-symmetric 2-manifold triangulation stitcher.
+- `surfData = waverider.geometry.generateOsculatingCone(cfg)` — Generates `'conical'` and `'osculating_cone'` forebodies (`surfData.NumClampedStations` reports evolute caustic clamping).
+- `surfData = waverider.geometry.generateCaretWedge(cfg)` — Generates exact Nonweiler `'caret'` compression surfaces.
+- `surfData = waverider.geometry.generateCSTBody(cfg)` — Generates Kulfan `'cst'` boost-glide surfaces.
+- `surfData = waverider.geometry.generateReentryVehicle(cfg)` — Generates axisymmetric `'rv'` mono-conic, bi-conic, and tri-conic reentry vehicles with `'conical'`, $C^1$ `'spherical'`, or $C^1$ `'ogive'` noses, inverse Taylor–Maccoll sharp-cone shock/pressure matching, and `'flat'` or positive-wall-thickness `'concave'` aft bulkheads.
+- `surfData = waverider.geometry.buildUpperSurface(surfData, cfg)` — Builds freestream or dorsal-canopy upper surfaces sharing exact leading-edge and wingtip boundaries.
+- `surfData = waverider.geometry.appendConformalFrustum(surfData, cfg)` — Appends conformal transition frustum and optional conical rocket stage to either waveriders or RVs.
+- `meshData = waverider.geometry.stitchWatertightMesh(surfData, cfg)` — Mirror-symmetric waverider and polar-to-polar axisymmetric RV 2-manifold triangulation stitcher.
 
 ### 2.3 `+waverider/+mesh`
 - `report = waverider.mesh.verifyWatertight(V, F, patchID, surfStruct)` — Full directed half-edge, Euler, degenerate-triangle, structured-fold, and Divergence-Theorem volume audit.
@@ -96,9 +108,9 @@ body.exportOBJ('output/model.obj');
 ### 2.4 `+waverider/+rcs`
 - `I = waverider.rcs.facetPhaseIntegral(v1, v2, v3, nHat, w)` — Exact vectorized Gordon (1975) triangle contour phase integral $\iint_{T_f} e^{i\mathbf{w}\cdot\mathbf{r}}\,dA$ for an $N_D \times 3$ wavevector array `w`.
 - `pairs = waverider.rcs.buildConcavePairList(body)` — Builds mirror-symmetric planar CCW super-cells on the lower compression surface and enumerates mutually visible concave pairs.
-- `[S_mb, contrib] = waverider.rcs.doubleBounceGOPO(pairs, uRadar, k0, wantContrib)` — Exact Sutherland–Hodgman clipped GO-PO two-bounce cavity solver returning total complex scattering amplitude `S_mb` and per-patch `[amp, L_half, r_O]` rows.
-- `rcs = waverider.rcs.computeRCS(body, freqGHz, azDeg, elDeg, 'IncludeMultiBounce', true, 'IncludeEdgeDiffraction', false)` — Full multi-band monostatic RCS sweep.
-- `rti = waverider.rcs.computeRangeProfile(body, freqGHz, bandwidthMHz, azVecDeg, elDeg, 'IncludeMultiBounce', true, 'WindowType', 'hann')` — Wideband stepped-frequency / matched-filter RTI sinogram and 1D HRRP solver (enforces $B \le f_c$).
+- `[S_mb, contrib, S_mb_pol] = waverider.rcs.doubleBounceGOPO(pairs, uRadar, k0, wantContrib, eHOpt)` — Exact Sutherland–Hodgman clipped GO-PO two-bounce cavity solver returning scalar complex amplitude `S_mb`, full vector polarimetric struct `S_mb_pol` (`HH`, `VV`, `HV`, `VH`), and per-patch `[ampMean, L_half, r_O(1:3), ampHH, ampVV, ampHV, ampVH]` (`[N x 9]`) rows.
+- `rcs = waverider.rcs.computeRCS(body, freqGHz, azDeg, elDeg, 'IncludeMultiBounce', true, 'IncludeEdgeDiffraction', false, 'Polarization', 'Mean')` — Full multi-band monostatic RCS sweep supporting `'Polarization'` in `{'Mean', 'HH', 'VV', 'HV', 'VH', 'PP', 'RL', 'LR', 'OP', 'RR', 'LL'}`. Always populates `rcs.Polarization` and `rcs.Polarimetric` (`S_Mean`, `S_HH`, `S_VV`, `S_HV`, `S_VH`, `S_PP`, `S_OP`, `S_LL`, `*_dBsm`, `Span_m2`, `Span_dBsm`) in a single pass.
+- `rti = waverider.rcs.computeRangeProfile(body, freqGHz, bandwidthMHz, azVecDeg, elDeg, 'IncludeMultiBounce', true, 'WindowType', 'hann', 'Polarization', 'Mean')` — Wideband stepped-frequency / matched-filter RTI sinogram and 1D HRRP solver (enforces $B \le f_c$; `'HV'`, `'VH'`, `'OP'`, `'LL'` suppress single-bounce PO clutter and isolate delayed cavity double-bounce returns).
 
 ### 2.5 `+waverider/+viz`
-- `plotWaverider`, `plotGeometryLines`, `plotKeyAttributes`, `plotFamilyComparison`, `plotTradeSpace`, `plotBoosterIntegration`, `plotRCSAnalysis`, `plotRCSConcavityComparison`, `plotRangeAngleIntensity`.
+- `plotWaverider`, `plotGeometryLines`, `plotKeyAttributes`, `plotFamilyComparison`, `plotTradeSpace`, `plotBoosterIntegration`, `plotRCSAnalysis` (accepts `'Polarization'`), `plotRCSConcavityComparison`, `plotRangeAngleIntensity` (accepts `'Polarization'` and `'WindowType'`).

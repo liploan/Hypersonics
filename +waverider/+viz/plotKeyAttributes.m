@@ -16,8 +16,14 @@ function fig = plotKeyAttributes(body, varargin)
     sec = body.SectionalAttributes;
     polar = body.computeAeroPolar(opts.AlphaRangeDeg);
 
-    % Always compute exact Taylor-Maccoll profile at design (Mach, ShockAngleDeg)
-    tm = waverider.flow.taylorMaccoll(cfg.Mach, cfg.ShockAngleDeg, cfg.Gamma);
+    % Compute Taylor-Maccoll profile (use solved RV conical shock if available, else valid attached beta)
+    if strcmpi(cfg.Method, 'rv') && isfield(body.SurfaceData, 'FlowSolution') && ...
+            isfield(body.SurfaceData.FlowSolution, 'thetaDeg')
+        tm = body.SurfaceData.FlowSolution;
+    else
+        betaSafe = max(cfg.ShockAngleDeg, asind(1.0 / cfg.Mach) + 2.5);
+        tm = waverider.flow.taylorMaccoll(cfg.Mach, betaSafe, cfg.Gamma);
+    end
 
     fig = figure('Color', 'w', 'Position', [80, 80, 1400, 880], 'Visible', opts.Visible);
     waverider.viz.stylePublicationFigure(fig, 'init');

@@ -125,11 +125,127 @@
       bradius: 0.75, blend: "cubic", rocket: false, rcone: 4.5
     },
     booster_mounted: {
+      arch: "waverider",
       method: "osculating_cone", mach: 7.0, beta: 13.5, length: 5.5, span: 1.75,
       power: 0.62, anhedral: 8.5, canopy: 0.045, frustum: true, flength: 1.65,
       bradius: 0.72, blend: "cubic", rocket: true, rcone: 4.5
+    },
+    rv_monoconic: {
+      arch: "rv",
+      rvBodyType: "mono_conic", rvNoseType: "spherical", rvBluntness: 0.16,
+      rvMach: 12.0, rvLength: 2.60, rvCone1: 8.0, rvCone2: 8.0, rvCone3: 8.0, rvFrac1: 0.45,
+      rvAftType: "flat", rvAftDepth: 0.35, rvAftPower: 2.0,
+      frustum: false, flength: 1.20, bradius: 0.55, blend: "cubic", rocket: false, rcone: 4.0
+    },
+    rv_biconic: {
+      arch: "rv",
+      rvBodyType: "bi_conic", rvNoseType: "spherical", rvBluntness: 0.22,
+      rvMach: 14.0, rvLength: 3.10, rvCone1: 11.5, rvCone2: 6.0, rvCone3: 6.0, rvFrac1: 0.42,
+      rvAftType: "concave", rvAftDepth: 0.38, rvAftPower: 2.0,
+      frustum: false, flength: 1.20, bradius: 0.55, blend: "cubic", rocket: false, rcone: 4.0
+    },
+    rv_triconic_flare: {
+      arch: "rv",
+      rvBodyType: "tri_conic", rvNoseType: "ogive", rvBluntness: 0.25,
+      rvMach: 10.0, rvLength: 3.40, rvCone1: 9.5, rvCone2: 3.5, rvCone3: 13.5, rvFrac1: 0.38,
+      rvAftType: "concave", rvAftDepth: 0.42, rvAftPower: 2.6,
+      frustum: false, flength: 1.20, bradius: 0.55, blend: "cubic", rocket: false, rcone: 4.0
+    },
+    rv_sharp_conic: {
+      arch: "rv",
+      rvBodyType: "mono_conic", rvNoseType: "conical", rvBluntness: 0.16,
+      rvMach: 15.0, rvLength: 2.80, rvCone1: 7.5, rvCone2: 7.5, rvCone3: 7.5, rvFrac1: 0.50,
+      rvAftType: "flat", rvAftDepth: 0.35, rvAftPower: 2.0,
+      frustum: false, flength: 1.20, bradius: 0.55, blend: "cubic", rocket: false, rcone: 4.0
     }
   };
+
+  let activeArch = "waverider";
+  let hasInitializedRVTab = false;
+
+  function getCheckedRadio(name, fallback) {
+    const checked = document.querySelector(`input[name="${name}"]:checked`);
+    return checked ? checked.value : fallback;
+  }
+
+  function setCheckedRadio(name, val) {
+    const target = document.querySelector(`input[name="${name}"][value="${val}"]`);
+    if (target) target.checked = true;
+  }
+
+  function syncRVConditionalInertStates() {
+    const bodyType = getCheckedRadio("rv-body-type", "bi_conic");
+    const noseType = getCheckedRadio("rv-nose-type", "spherical");
+    const aftType = getCheckedRadio("rv-aft-type", "concave");
+    const frustumOn = document.getElementById("chk-frustum").checked;
+
+    const bluntGroup = document.getElementById("rv-bluntness-group");
+    const stage2Group = document.getElementById("rv-stage2-group");
+    const stage3Group = document.getElementById("rv-stage3-group");
+    const aftCavGroup = document.getElementById("rv-aft-cavity-group");
+    const bluntLbl = document.getElementById("lbl-rv-bluntness");
+
+    if (bluntGroup) bluntGroup.inert = noseType === "conical";
+    if (bluntLbl) {
+      bluntLbl.innerHTML = noseType === "ogive"
+        ? "Ogive Curvature / Length Ratio"
+        : "Nose Bluntness (R<sub>N</sub> / R<sub>base</sub>)";
+    }
+    if (stage2Group) stage2Group.inert = bodyType === "mono_conic";
+    if (stage3Group) stage3Group.inert = bodyType !== "tri_conic";
+    if (aftCavGroup) aftCavGroup.inert = aftType !== "concave" || frustumOn;
+  }
+
+  const archTablist = document.querySelector(".arch-tabs");
+  const archTabs = archTablist ? Array.from(archTablist.querySelectorAll('[role="tab"]')) : [];
+
+  function selectVehicleTab(nextTab, moveFocus = false) {
+    if (!nextTab) return;
+    const nextArch = nextTab.id === "tab-rv" ? "rv" : "waverider";
+    archTabs.forEach((tab) => {
+      const selected = tab === nextTab;
+      tab.setAttribute("aria-selected", String(selected));
+      tab.tabIndex = selected ? 0 : -1;
+      const panel = document.getElementById(tab.getAttribute("aria-controls"));
+      if (panel) {
+        panel.hidden = selected ? false : "until-found";
+      }
+    });
+    if (nextArch === "rv" && !hasInitializedRVTab) {
+      hasInitializedRVTab = true;
+      // Default standalone RV exposes its flat/concave aft plane unless user re-enables booster mount
+      document.getElementById("chk-frustum").checked = false;
+      document.getElementById("chk-rocket").checked = false;
+    }
+    activeArch = nextArch;
+    syncRVConditionalInertStates();
+    if (moveFocus) nextTab.focus();
+    scheduleUpdate("geometry");
+  }
+
+  if (archTablist) {
+    archTabs.forEach((tab) => {
+      tab.addEventListener("click", () => selectVehicleTab(tab, false));
+      const panel = document.getElementById(tab.getAttribute("aria-controls"));
+      if (panel) {
+        panel.addEventListener("beforematch", () => selectVehicleTab(tab, false));
+      }
+    });
+    archTablist.addEventListener("keydown", (e) => {
+      const idx = archTabs.indexOf(e.target);
+      if (idx === -1) return;
+      const dir = getComputedStyle(archTablist).direction === "rtl" ? -1 : 1;
+      let nextIdx = -1;
+      if (e.key === "ArrowRight") nextIdx = (idx + dir + archTabs.length) % archTabs.length;
+      else if (e.key === "ArrowLeft") nextIdx = (idx - dir + archTabs.length) % archTabs.length;
+      else if (e.key === "Home") nextIdx = 0;
+      else if (e.key === "End") nextIdx = archTabs.length - 1;
+      if (nextIdx !== -1) {
+        e.preventDefault();
+        selectVehicleTab(archTabs[nextIdx], true);
+      }
+    });
+  }
 
   let currentModel = null;
   let currentRTIData = null;
@@ -255,18 +371,33 @@
       }
     }
 
-    // Highlight Leading Edge Curve
+    // Highlight Leading Edge Curve (Waverider) or Stage Break / Aft Rim Rings (RV)
     ctx.strokeStyle = "#f8fafc";
     ctx.lineWidth = 2.0;
-    ctx.beginPath();
-    for (let k = 0; k < model.Ny; k++) {
-      const p = projectPt([model.X_low[0][k], model.Y_low[0][k], model.Z_low[0][k]]);
-      if (k === 0) ctx.moveTo(p[0], p[1]);
-      else ctx.lineTo(p[0], p[1]);
+    if (model.isAxisymmetric) {
+      const rAft = model.NxWave - 1;
+      ctx.beginPath();
+      for (let k = 0; k < model.Ny; k++) {
+        const p = projectPt([model.X_up[rAft][k], model.Y_up[rAft][k], model.Z_up[rAft][k]]);
+        if (k === 0) ctx.moveTo(p[0], p[1]); else ctx.lineTo(p[0], p[1]);
+      }
+      for (let k = model.Ny - 1; k >= 0; k--) {
+        const p = projectPt([model.X_low[rAft][k], model.Y_low[rAft][k], model.Z_low[rAft][k]]);
+        ctx.lineTo(p[0], p[1]);
+      }
+      ctx.closePath();
+      ctx.stroke();
+    } else {
+      ctx.beginPath();
+      for (let k = 0; k < model.Ny; k++) {
+        const p = projectPt([model.X_low[0][k], model.Y_low[0][k], model.Z_low[0][k]]);
+        if (k === 0) ctx.moveTo(p[0], p[1]);
+        else ctx.lineTo(p[0], p[1]);
+      }
+      ctx.stroke();
     }
-    ctx.stroke();
 
-    // Optional Ventral Concave Double-Bounce Coupling Rays
+    // Optional Ventral / Cavity Concave Double-Bounce Coupling Rays
     if (showRays && model.concavePairs.length > 0) {
       ctx.strokeStyle = "rgba(250, 204, 21, 0.78)";
       ctx.lineWidth = 1.25;
@@ -283,7 +414,8 @@
     }
 
     // 3D Reference Coordinate Bounding Frame & Labeled Tick Marks in Meters
-    const yAxisRef = -Math.max(cfg.span, Math.abs(model.yMin)) * 1.15;
+    const bHalfRef = model.isAxisymmetric && model.rvMeta ? model.rvMeta.rBase_m : cfg.span;
+    const yAxisRef = -Math.max(bHalfRef, Math.abs(model.yMin)) * 1.18;
     const zAxisRef = model.zMin - 0.18;
 
     ctx.strokeStyle = "rgba(148, 163, 184, 0.45)";
@@ -306,20 +438,20 @@
     ctx.fillStyle = "#38bdf8";
     ctx.fillText("Axial Length X [m]", pXMid[0] - 42, pXMid[1] + 28);
 
-    // Spanwise Y-axis ruler at aft plane [-b/2 .. +b/2]
+    // Spanwise / Radial Y-axis ruler at aft plane [-bHalfRef .. +bHalfRef]
     ctx.font = "11px ui-monospace, SFMono-Regular, Menlo, monospace";
     ctx.fillStyle = "#cbd5e1";
-    const pY0 = projectPt([xMaxTotal, -cfg.span, zAxisRef]);
-    const pY1 = projectPt([xMaxTotal, cfg.span, zAxisRef]);
+    const pY0 = projectPt([xMaxTotal, -bHalfRef, zAxisRef]);
+    const pY1 = projectPt([xMaxTotal, bHalfRef, zAxisRef]);
     ctx.beginPath(); ctx.moveTo(pY0[0], pY0[1]); ctx.lineTo(pY1[0], pY1[1]); ctx.stroke();
-    [-cfg.span, 0, cfg.span].forEach((yv) => {
+    [-bHalfRef, 0, bHalfRef].forEach((yv) => {
       const pt = projectPt([xMaxTotal, yv, zAxisRef]);
       ctx.fillRect(pt[0] - 1.5, pt[1] - 1.5, 3, 3);
-      ctx.fillText(`${yv >= 0 ? "+" : ""}${yv.toFixed(1)}m`, pt[0] + 5, pt[1] + 4);
+      ctx.fillText(`${yv >= 0 ? "+" : ""}${yv.toFixed(2)}m`, pt[0] + 5, pt[1] + 4);
     });
     ctx.font = "bold 11.5px -apple-system, BlinkMacSystemFont, sans-serif";
     ctx.fillStyle = "#4ade80";
-    ctx.fillText("Span Y [m]", pY1[0] + 6, pY1[1] - 8);
+    ctx.fillText(model.isAxisymmetric ? "Radius Y [m]" : "Span Y [m]", pY1[0] + 6, pY1[1] - 8);
 
     // 3D Orientation Triad in Bottom-Left Corner
     const ox = 54, oy = H - 48, triLen = 34;
@@ -364,8 +496,209 @@
     });
   }
 
-  // 4. Canvas 2: Aft Cross-Section & Conformal Frustum Morphing View
+  // 4. Canvas 2: Aft Cross-Section (Waverider) OR Meridional X-R Blueprint Profile (RV)
   const canvasSec = document.getElementById("canvas-sections");
+  function renderRVMeridionalBlueprint(ctx, W, H, model) {
+    const padL = 64, padR = 24, padT = 34, padB = 48;
+    const plotW = Math.max(W - padL - padR, 100);
+    const plotH = Math.max(H - padT - padB, 100);
+
+    const rv = model.rvMeta;
+    const midCol = Math.floor(model.Ny / 2);
+    const xMaxPlot = Math.max(model.xMax * 1.06, 1.0);
+    const xMinPlot = -0.05 * xMaxPlot;
+    let rMaxAbs = rv.rBase_m * 1.35;
+    for (let i = 0; i < rv.rShockProfile.length; i++) {
+      rMaxAbs = Math.max(rMaxAbs, rv.rShockProfile[i] * 1.05);
+    }
+    for (let i = 0; i < model.NxTotal; i++) {
+      rMaxAbs = Math.max(rMaxAbs, Math.abs(model.Z_up[i][midCol]) * 1.15, Math.abs(model.Z_low[i][midCol]) * 1.15);
+    }
+
+    const scale = Math.min(plotW / (xMaxPlot - xMinPlot), plotH / (2.0 * rMaxAbs));
+    const xSpanActual = plotW / scale;
+    const xOrigin = 0.5 * (xMinPlot + xMaxPlot) - 0.5 * xSpanActual;
+    const cy = padT + plotH * 0.5;
+
+    function toPx(x, z) {
+      return [padL + (x - xOrigin) * scale, cy - z * scale];
+    }
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(padL, padT, plotW, plotH);
+    ctx.clip();
+
+    const xStep = xMaxPlot > 5.0 ? 1.0 : 0.5;
+    const zStep = rMaxAbs > 1.2 ? 0.5 : 0.25;
+    ctx.strokeStyle = "rgba(148, 163, 184, 0.16)";
+    ctx.lineWidth = 1;
+    for (let xv = Math.ceil(xOrigin / xStep) * xStep; xv <= xOrigin + xSpanActual; xv += xStep) {
+      const [px] = toPx(xv, 0);
+      ctx.beginPath(); ctx.moveTo(px, padT); ctx.lineTo(px, padT + plotH); ctx.stroke();
+    }
+    const zLim = (plotH * 0.5) / scale;
+    for (let zv = -Math.floor(zLim / zStep) * zStep; zv <= zLim + 1e-6; zv += zStep) {
+      const [, py] = toPx(0, zv);
+      ctx.beginPath(); ctx.moveTo(padL, py); ctx.lineTo(padL + plotW, py); ctx.stroke();
+    }
+
+    // Centerline axis Z = 0
+    ctx.strokeStyle = "rgba(148, 163, 184, 0.35)";
+    ctx.beginPath(); ctx.moveTo(padL, cy); ctx.lineTo(padL + plotW, cy); ctx.stroke();
+
+    // Build aft bulkhead path (flat or recessed concave cavity)
+    const hasAftExt = model.NxTotal > model.NxWave;
+    const aftPts = [];
+    const rTopAft = model.Z_up[model.NxTotal - 1][midCol];
+    const rBotAft = model.Z_low[model.NxTotal - 1][midCol];
+    const xRimAft = model.X_up[model.NxTotal - 1][midCol];
+    if (!hasAftExt && rv.aftCavityDepth_m > 0) {
+      const nDome = 29;
+      for (let m = 0; m < nDome; m++) {
+        const s = 1.0 - (2.0 * m) / (nDome - 1); // +1 (top) -> -1 (bottom)
+        const u = Math.abs(s);
+        const xD = xRimAft - rv.aftCavityDepth_m * (1.0 - Math.pow(u, rv.aftCavityPower));
+        const zD = s >= 0 ? u * rTopAft : u * Math.abs(rBotAft) * -1.0;
+        aftPts.push([xD, zD]);
+      }
+    } else {
+      aftPts.push([xRimAft, rTopAft], [xRimAft, rBotAft]);
+    }
+
+    // Fill RV Meridional Solid Cross-Section
+    ctx.beginPath();
+    for (let i = 0; i < model.NxTotal; i++) {
+      const [px, py] = toPx(model.X_up[i][midCol], model.Z_up[i][midCol]);
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    for (let m = 0; m < aftPts.length; m++) {
+      const [px, py] = toPx(aftPts[m][0], aftPts[m][1]);
+      ctx.lineTo(px, py);
+    }
+    for (let i = model.NxTotal - 1; i >= 0; i--) {
+      const [px, py] = toPx(model.X_low[i][midCol], model.Z_low[i][midCol]);
+      ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fillStyle = "rgba(56, 189, 248, 0.16)";
+    ctx.fill();
+
+    // Stage break & nose tangency markers
+    ctx.save();
+    ctx.setLineDash([4, 4]);
+    ctx.lineWidth = 1.2;
+    for (let b = 0; b < rv.stageBreaksX.length - 1; b++) {
+      const xb = rv.stageBreaksX[b];
+      const rb = rv.stageBreaksR[b];
+      if (xb <= 1e-4) continue;
+      const [px, pyTop] = toPx(xb, rb);
+      const [, pyBot] = toPx(xb, -rb);
+      ctx.strokeStyle = b === 0 ? "rgba(250, 204, 21, 0.75)" : "rgba(192, 132, 252, 0.75)";
+      ctx.beginPath(); ctx.moveTo(px, pyTop); ctx.lineTo(px, pyBot); ctx.stroke();
+      ctx.fillStyle = b === 0 ? "#fde047" : "#d8b4fe";
+      ctx.font = "10px -apple-system, BlinkMacSystemFont, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(b === 0 ? "Tangency" : `Stage ${b + 1}`, px, Math.max(padT + 12, pyTop - 5));
+    }
+    ctx.restore();
+
+    // Upper (+R) & Lower (-R) Outer Mold Line
+    ctx.strokeStyle = "#38bdf8";
+    ctx.lineWidth = 2.4;
+    ctx.beginPath();
+    for (let i = 0; i < model.NxTotal; i++) {
+      const [px, py] = toPx(model.X_up[i][midCol], model.Z_up[i][midCol]);
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+
+    ctx.strokeStyle = "#fb923c";
+    ctx.lineWidth = 2.4;
+    ctx.beginPath();
+    for (let i = 0; i < model.NxTotal; i++) {
+      const [px, py] = toPx(model.X_low[i][midCol], model.Z_low[i][midCol]);
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+
+    // Aft Bulkhead / Concave Cavity Contour (Green)
+    ctx.strokeStyle = "#4ade80";
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    for (let m = 0; m < aftPts.length; m++) {
+      const [px, py] = toPx(aftPts[m][0], aftPts[m][1]);
+      if (m === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+
+    // Bow / Conical Shock Envelope (+R_shk and -R_shk)
+    ctx.save();
+    ctx.setLineDash([6, 4]);
+    ctx.strokeStyle = "#f43f5e";
+    ctx.lineWidth = 1.7;
+    for (const sgn of [+1, -1]) {
+      ctx.beginPath();
+      for (let i = 0; i < model.NxWave; i++) {
+        const [px, py] = toPx(model.X_shk[i][midCol], sgn * Math.abs(model.Z_shk[i][midCol]));
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+    ctx.restore();
+
+    ctx.strokeStyle = "#475569";
+    ctx.lineWidth = 1.2;
+    ctx.strokeRect(padL, padT, plotW, plotH);
+
+    ctx.fillStyle = "#cbd5e1";
+    ctx.font = "11px ui-monospace, SFMono-Regular, Menlo, monospace";
+    ctx.textAlign = "center";
+    for (let xv = Math.ceil(xOrigin / xStep) * xStep; xv <= xOrigin + xSpanActual; xv += xStep) {
+      const [px] = toPx(xv, 0);
+      if (px >= padL + 10 && px <= padL + plotW - 10) {
+        ctx.fillText(`${xv.toFixed(1)}`, px, padT + plotH + 16);
+      }
+    }
+    ctx.textAlign = "right";
+    for (let zv = -Math.floor(zLim / zStep) * zStep; zv <= zLim + 1e-6; zv += zStep) {
+      const [, py] = toPx(0, zv);
+      if (py >= padT + 8 && py <= padT + plotH - 6) {
+        ctx.fillText(`${zv.toFixed(2)}`, padL - 8, py + 4);
+      }
+    }
+
+    ctx.fillStyle = "#f0f4fc";
+    ctx.font = "bold 12px -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(`Axial Station X [m]  (D_base = ${(2.0 * rv.rBase_m).toFixed(2)} m, ${rv.aftCavityDepth_m > 0 && !hasAftExt ? `Concave d = ${(rv.aftCavityDepth_m * 100).toFixed(1)} cm` : "Flat Aft Plane"})`, padL + plotW * 0.5, H - 10);
+
+    ctx.save();
+    ctx.translate(16, padT + plotH * 0.5);
+    ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = "center";
+    ctx.fillText("Radial Contour \u00B1R(x) [m]", 0, 0);
+    ctx.restore();
+
+    const rvLegend = [
+      { label: "Dorsal +R(x)", color: "#38bdf8" },
+      { label: "Ventral -R(x)", color: "#fb923c" },
+      { label: rv.aftCavityDepth_m > 0 && !hasAftExt ? "Concave Aft Cavity" : "Flat Aft Bulkhead", color: "#4ade80" },
+      { label: "Shock Envelope", color: "#f43f5e" }
+    ];
+    let lx = padL + 4;
+    ctx.textAlign = "left";
+    ctx.font = "11px -apple-system, BlinkMacSystemFont, sans-serif";
+    rvLegend.forEach((s) => {
+      ctx.fillStyle = s.color;
+      ctx.fillRect(lx, 12, 14, 3);
+      ctx.fillStyle = "#e2e8f0";
+      ctx.fillText(s.label, lx + 18, 17);
+      lx += ctx.measureText(s.label).width + 26;
+    });
+  }
+
   function renderCrossSections(model) {
     const rect = canvasSec.parentElement.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
@@ -377,6 +710,25 @@
 
     ctx.fillStyle = "#090e1a";
     ctx.fillRect(0, 0, W, H);
+
+    const titleEl = document.getElementById("title-panel-2");
+    const hintEl = document.getElementById("hint-panel-2");
+    if (model.isAxisymmetric && model.rvMeta) {
+      if (titleEl) {
+        titleEl.innerHTML = "2. Meridional RV Blueprint (Nose Tangency, Conic Stages &amp; Aft Bulkhead)";
+      }
+      if (hintEl) {
+        hintEl.innerHTML = "Blue/Orange = Outer Skin &middot; Green = Flat/Concave Aft Plane &middot; Dashed = Shock";
+      }
+      renderRVMeridionalBlueprint(ctx, W, H, model);
+      return;
+    }
+    if (titleEl) {
+      titleEl.innerHTML = "2. Cross-Sectional Morphing (Waverider Base X=L &rarr; Booster Ring &rarr; Rocket)";
+    }
+    if (hintEl) {
+      hintEl.innerHTML = "Blue/Orange = Waverider &middot; Purple/Green = Frustum Morph &middot; Dashed = Shock";
+    }
 
     const padL = 64, padR = 24, padT = 34, padB = 48;
     const plotW = Math.max(W - padL - padR, 100);
@@ -907,12 +1259,13 @@
     }
 
     const rStep = (rtiData.rangeVec[rtiData.rangeVec.length - 1] - rtiData.rangeVec[0]) > 8.5 ? 2.0 : 1.0;
+    const polLabel = rtiData.polarization || "Mean";
     drawLineChart(
       document.getElementById("canvas-hrrp"),
       rtiData.rangeVec,
       hrrpSeries,
-      `Down-Range Coordinate R [m]  (f_c = ${rtiData.freqGHz.toFixed(1)} GHz, B = ${rtiData.bwMHz.toFixed(0)} MHz, \u0394R = ${deltaR_cm} cm, \u03C8 = ${actualAz}\u00B0)`,
-      "Range Profile \u03C3(R) [dBsm]",
+      `Down-Range Coordinate R [m]  (Pol: ${polLabel}, f_c = ${rtiData.freqGHz.toFixed(1)} GHz, B = ${rtiData.bwMHz.toFixed(0)} MHz, \u0394R = ${deltaR_cm} cm, \u03C8 = ${actualAz}\u00B0)`,
+      `Range Profile \u03C3_${polLabel}(R) [dBsm]`,
       -45,
       25,
       vLines,
@@ -925,6 +1278,7 @@
   function updateRCSAndPlots() {
     enforcePhysicalSliderBounds();
 
+    const pol = document.getElementById("sel-pol").value;
     const elLook = parseFloat(document.getElementById("rng-rcsel").value);
     const fcGHz = parseFloat(document.getElementById("rng-fc").value);
     const bwMHz = parseFloat(document.getElementById("rng-bw").value);
@@ -946,11 +1300,11 @@
       `B = ${bwMHz.toFixed(0)} MHz @ ${fcGHz.toFixed(1)} GHz (${((bwMHz * 0.1) / fcGHz).toFixed(1)}% BW)`;
 
     document.getElementById("hint-az-el").innerHTML =
-      `Evaluated at Look Elevation &theta;<sub>el</sub> = ${elLook}&deg; (${elLook < 0 ? "Ventral Cavity" : "Dorsal Canopy"})`;
+      `Pol: <strong>${pol}</strong> &middot; Look Elevation &theta;<sub>el</sub> = ${elLook}&deg; (${elLook < 0 ? "Ventral Cavity" : "Dorsal Canopy"})`;
     document.getElementById("hint-rti-bw").innerHTML =
-      `f<sub>c</sub> = ${fcGHz.toFixed(1)} GHz &middot; B = ${bwMHz.toFixed(0)} MHz (&Delta;R = ${deltaR_cm.toFixed(1)} cm) &middot; Click Heatmap to Cut`;
+      `Pol: <strong>${pol}</strong> &middot; f<sub>c</sub> = ${fcGHz.toFixed(1)} GHz &middot; B = ${bwMHz.toFixed(0)} MHz (&Delta;R = ${deltaR_cm.toFixed(1)} cm) &middot; Click Heatmap to Cut`;
     document.getElementById("hint-hrrp-cut").innerHTML =
-      `Cut at &psi;<sub>cut</sub> = ${rtiAz.toFixed(0)}&deg;, &theta;<sub>el</sub> = ${elLook}&deg; &middot; Window: ${winType.toUpperCase()}`;
+      `Pol: <strong>${pol}</strong> &middot; Cut at &psi;<sub>cut</sub> = ${rtiAz.toFixed(0)}&deg;, &theta;<sub>el</sub> = ${elLook}&deg; &middot; Window: ${winType.toUpperCase()}`;
 
     // 1. Azimuthal Sweep (0 to 180 deg) across UHF (0.5), L (1.5), S (3.0), C (6.0), X (10.0 GHz)
     const azVec = [];
@@ -967,7 +1321,7 @@
     const azRaw = bands.map(() => new Float64Array(azVec.length));
 
     for (let ia = 0; ia < azVec.length; ia++) {
-      const multi = phys.evaluateRCSMultiFreq(currentModel, azFreqs, azVec[ia], elLook, includeMB);
+      const multi = phys.evaluateRCSMultiFreq(currentModel, azFreqs, azVec[ia], elLook, includeMB, pol);
       for (let ib = 0; ib < bands.length; ib++) {
         azRaw[ib][ia] = multi[ib].total_dBsm;
       }
@@ -980,16 +1334,27 @@
       width: 2.0
     }));
 
-    const leSweepNomDeg = (Math.atan2(currentModel.cfg.length, currentModel.cfg.span) * 180.0) / Math.PI;
+    let azMarkers = [];
+    if (currentModel.isAxisymmetric && currentModel.rvMeta) {
+      const th1 = currentModel.rvMeta.coneAnglesDeg[0];
+      const specAz = Math.max(0.0, Math.min(180.0, 90.0 - th1));
+      azMarkers.push({ x: specAz, label: `Cone Specular (~${Math.round(specAz)}\u00B0)` });
+      if (currentModel.rvMeta.aftCavityDepth_m > 0 && currentModel.NxTotal === currentModel.NxWave) {
+        azMarkers.push({ x: 162, label: "Aft Cavity Sector", color: "#4ade80", yOffset: 28 });
+      }
+    } else {
+      const leSweepNomDeg = (Math.atan2(currentModel.cfg.length, currentModel.cfg.span) * 180.0) / Math.PI;
+      azMarkers.push({ x: leSweepNomDeg, label: `LE Specular (~${Math.round(leSweepNomDeg)}\u00B0)` });
+    }
     drawLineChart(
       document.getElementById("canvas-rcs-az"),
       azVec,
       azSeries,
       "Azimuth Angle \u03C8 [deg]  (0\u00B0 = Nose-On, 90\u00B0 = Broadside, 180\u00B0 = Tail-On)",
-      "Monostatic RCS \u03C3 [dBsm]",
+      `Monostatic RCS \u03C3_${pol} [dBsm]`,
       -40,
       25,
-      [{ x: leSweepNomDeg, label: `LE Specular (~${Math.round(leSweepNomDeg)}\u00B0)` }]
+      azMarkers
     );
 
     // 2. Elevation Cut (-90 deg Ventral to +90 deg Dorsal) at Oblique Azimuth = 45 deg
@@ -1007,7 +1372,7 @@
     let maxMBGain = 0.0;
 
     for (let ie = 0; ie < elVec.length; ie++) {
-      const multi = phys.evaluateRCSMultiFreq(currentModel, elFreqs, 45.0, elVec[ie], includeMB);
+      const multi = phys.evaluateRCSMultiFreq(currentModel, elFreqs, 45.0, elVec[ie], includeMB, pol);
       for (let ib = 0; ib < elBands.length; ib++) {
         elTot[ib][ie] = multi[ib].total_dBsm;
         elSng[ib][ie] = multi[ib].single_dBsm;
@@ -1024,10 +1389,10 @@
 
     let ventralXSum = 0.0, dorsalXSum = 0.0, ventralUHFSum = 0.0, nSec = 0;
     for (let az = 25; az <= 75; az += 10) {
-      const vPair = phys.evaluateRCSMultiFreq(currentModel, [0.5, 10.0], az, -22.0, includeMB);
+      const vPair = phys.evaluateRCSMultiFreq(currentModel, [0.5, 10.0], az, -22.0, includeMB, pol);
       ventralUHFSum += vPair[0].total_m2;
       ventralXSum += vPair[1].total_m2;
-      dorsalXSum += phys.evaluateRCSDirection(currentModel, 10.0, az, +22.0, includeMB).total_m2;
+      dorsalXSum += phys.evaluateRCSDirection(currentModel, 10.0, az, +22.0, includeMB, pol).total_m2;
       nSec++;
     }
 
@@ -1036,7 +1401,7 @@
       elVec,
       elSeries,
       "Elevation Angle \u03B8_el [deg]  (< 0\u00B0 Ventral Concave Underside  |  > 0\u00B0 Dorsal Canopy)",
-      "Monostatic RCS \u03C3 [dBsm]",
+      `Monostatic RCS \u03C3_${pol} [dBsm]`,
       -40,
       35,
       [{ x: 0, label: "Horizon (\u03B8_el = 0\u00B0)" }]
@@ -1047,19 +1412,69 @@
     const vUHF_dB = 10.0 * Math.log10(ventralUHFSum / nSec);
 
     document.getElementById("m-pairs").textContent = `${currentModel.totalConcavePairs} Pairs`;
-    document.getElementById("m-mbgain").textContent = `Max Double-Bounce +${maxMBGain.toFixed(1)} dB`;
-    document.getElementById("m-rcs-x").textContent = `${vX_dB >= 0 ? "+" : ""}${vX_dB.toFixed(1)} dBsm`;
+    document.getElementById("m-mbgain").textContent =
+      pol === "HV" || pol === "VH" || pol === "OP"
+        ? `Cavity Gain +${maxMBGain.toFixed(1)} dB (${pol})`
+        : `Max Double-Bounce +${maxMBGain.toFixed(1)} dB (${pol})`;
+    document.getElementById("m-rcs-x").textContent = `${vX_dB >= 0 ? "+" : ""}${vX_dB.toFixed(1)} dBsm (${pol})`;
     document.getElementById("m-rcs-diff").textContent =
       `Dorsal: ${dX_dB >= 0 ? "+" : ""}${dX_dB.toFixed(1)} | UHF: ${vUHF_dB.toFixed(1)} dBsm`;
 
     // 3. Compute & Render 2D Range-Angle-Intensity (Sinogram) and 1D High-Resolution Range Profile (HRRP)
-    currentRTIData = phys.computeRangeAngleIntensity(currentModel, fcGHz, bwMHz, elLook, includeMB, winType);
+    currentRTIData = phys.computeRangeAngleIntensity(currentModel, fcGHz, bwMHz, elLook, includeMB, winType, {
+      polarization: pol
+    });
     renderRangeAngleIntensity(currentRTIData, rtiAz);
     renderHRRPChart(currentRTIData, rtiAz);
   }
 
   // 9. Read UI Controls, Rebuild Model & Tiered rAF Update Scheduler
   function readConfigFromUI() {
+    const frustum = document.getElementById("chk-frustum").checked;
+    const flength = parseFloat(document.getElementById("rng-flength").value);
+    const bradius = parseFloat(document.getElementById("rng-bradius").value);
+    const blend = document.getElementById("sel-blend").value;
+    const rocket = document.getElementById("chk-rocket").checked;
+    const rcone = parseFloat(document.getElementById("rng-rcone").value);
+
+    if (activeArch === "rv") {
+      const rvBodyType = getCheckedRadio("rv-body-type", "bi_conic");
+      const rvNoseType = getCheckedRadio("rv-nose-type", "spherical");
+      const rvAftType = getCheckedRadio("rv-aft-type", "concave");
+      const rvMach = parseFloat(document.getElementById("rng-rv-mach").value);
+      const rvLength = parseFloat(document.getElementById("rng-rv-length").value);
+      const rvBluntness = parseFloat(document.getElementById("rng-rv-bluntness").value);
+      const c1 = parseFloat(document.getElementById("rng-rv-cone1").value);
+      const c2 = parseFloat(document.getElementById("rng-rv-cone2").value);
+      const c3 = parseFloat(document.getElementById("rng-rv-cone3").value);
+      const f1 = parseFloat(document.getElementById("rng-rv-frac1").value);
+      const rvAftDepth = parseFloat(document.getElementById("rng-rv-aftdepth").value);
+      const rvAftPower = parseFloat(document.getElementById("rng-rv-aftpower").value);
+
+      let rvStageFractions = [1.0, 0.0, 0.0];
+      if (rvBodyType === "bi_conic") {
+        rvStageFractions = [f1, Math.max(0.05, 1.0 - f1), 0.0];
+      } else if (rvBodyType === "tri_conic") {
+        const rem = Math.max(0.10, 1.0 - f1);
+        rvStageFractions = [f1, 0.52 * rem, 0.48 * rem];
+      }
+
+      return {
+        method: "rv",
+        mach: rvMach,
+        length: rvLength,
+        rvBodyType,
+        rvNoseType,
+        rvBluntness,
+        rvConeAngles: [c1, c2, c3],
+        rvStageFractions,
+        rvAftType,
+        rvAftDepth,
+        rvAftPower,
+        frustum, flength, bradius, blend, rocket, rcone
+      };
+    }
+
     return {
       method: document.getElementById("sel-method").value,
       mach: parseFloat(document.getElementById("rng-mach").value),
@@ -1069,29 +1484,35 @@
       power: parseFloat(document.getElementById("rng-power").value),
       anhedral: parseFloat(document.getElementById("rng-anhedral").value),
       canopy: parseFloat(document.getElementById("rng-canopy").value),
-      frustum: document.getElementById("chk-frustum").checked,
-      flength: parseFloat(document.getElementById("rng-flength").value),
-      bradius: parseFloat(document.getElementById("rng-bradius").value),
-      blend: document.getElementById("sel-blend").value,
-      rocket: document.getElementById("chk-rocket").checked,
-      rcone: parseFloat(document.getElementById("rng-rcone").value)
+      frustum, flength, bradius, blend, rocket, rcone
     };
   }
 
   function updateGeometryAndAll() {
     enforcePhysicalSliderBounds();
+    syncRVConditionalInertStates();
     const cfg = readConfigFromUI();
 
-    document.getElementById("val-mach").textContent = cfg.mach.toFixed(1);
-    document.getElementById("val-beta").innerHTML = `${cfg.beta.toFixed(1)}&deg;`;
-    document.getElementById("val-length").textContent = `${cfg.length.toFixed(2)} m`;
-    document.getElementById("val-span").textContent = `${cfg.span.toFixed(2)} m`;
-    document.getElementById("val-power").textContent = cfg.power.toFixed(2);
-    document.getElementById("val-anhedral").innerHTML = `${cfg.anhedral.toFixed(1)}&deg;`;
-    document.getElementById("val-canopy").textContent = cfg.canopy.toFixed(3);
+    document.getElementById("val-mach").textContent = parseFloat(document.getElementById("rng-mach").value).toFixed(1);
+    document.getElementById("val-beta").innerHTML = `${parseFloat(document.getElementById("rng-beta").value).toFixed(1)}&deg;`;
+    document.getElementById("val-length").textContent = `${parseFloat(document.getElementById("rng-length").value).toFixed(2)} m`;
+    document.getElementById("val-span").textContent = `${parseFloat(document.getElementById("rng-span").value).toFixed(2)} m`;
+    document.getElementById("val-power").textContent = parseFloat(document.getElementById("rng-power").value).toFixed(2);
+    document.getElementById("val-anhedral").innerHTML = `${parseFloat(document.getElementById("rng-anhedral").value).toFixed(1)}&deg;`;
+    document.getElementById("val-canopy").textContent = parseFloat(document.getElementById("rng-canopy").value).toFixed(3);
     document.getElementById("val-flength").textContent = `${cfg.flength.toFixed(2)} m`;
     document.getElementById("val-bradius").textContent = `${cfg.bradius.toFixed(2)} m`;
     document.getElementById("val-rcone").innerHTML = `${cfg.rcone.toFixed(1)}&deg;`;
+
+    document.getElementById("val-rv-mach").textContent = parseFloat(document.getElementById("rng-rv-mach").value).toFixed(1);
+    document.getElementById("val-rv-length").textContent = `${parseFloat(document.getElementById("rng-rv-length").value).toFixed(2)} m`;
+    document.getElementById("val-rv-bluntness").textContent = parseFloat(document.getElementById("rng-rv-bluntness").value).toFixed(2);
+    document.getElementById("val-rv-cone1").innerHTML = `${parseFloat(document.getElementById("rng-rv-cone1").value).toFixed(1)}&deg;`;
+    document.getElementById("val-rv-cone2").innerHTML = `${parseFloat(document.getElementById("rng-rv-cone2").value).toFixed(1)}&deg;`;
+    document.getElementById("val-rv-cone3").innerHTML = `${parseFloat(document.getElementById("rng-rv-cone3").value).toFixed(1)}&deg;`;
+    document.getElementById("val-rv-frac1").textContent = parseFloat(document.getElementById("rng-rv-frac1").value).toFixed(2);
+    document.getElementById("val-rv-aftdepth").textContent = parseFloat(document.getElementById("rng-rv-aftdepth").value).toFixed(2);
+    document.getElementById("val-rv-aftpower").textContent = parseFloat(document.getElementById("rng-rv-aftpower").value).toFixed(1);
 
     currentModel = phys.buildWaveriderModel(cfg);
 
@@ -1127,12 +1548,13 @@
       updateRCSAndPlots();
       return;
     }
+    const pol = document.getElementById("sel-pol").value;
     const rtiAz = parseFloat(document.getElementById("rng-rtiaz").value);
     const elLook = parseFloat(document.getElementById("rng-rcsel").value);
     const winType = document.getElementById("sel-window").value;
     document.getElementById("val-rtiaz").innerHTML = `${rtiAz.toFixed(0)}&deg;`;
     document.getElementById("hint-hrrp-cut").innerHTML =
-      `Cut at &psi;<sub>cut</sub> = ${rtiAz.toFixed(0)}&deg;, &theta;<sub>el</sub> = ${elLook}&deg; &middot; Window: ${winType.toUpperCase()}`;
+      `Pol: <strong>${pol}</strong> &middot; Cut at &psi;<sub>cut</sub> = ${rtiAz.toFixed(0)}&deg;, &theta;<sub>el</sub> = ${elLook}&deg; &middot; Window: ${winType.toUpperCase()}`;
     renderRangeAngleIntensity(currentRTIData, rtiAz);
     renderHRRPChart(currentRTIData, rtiAz);
   }
@@ -1180,7 +1602,8 @@
   document.getElementById("btn-export-stl").addEventListener("click", () => {
     if (!currentModel) return;
     const { vertices, faces, faceNormals, cfg } = currentModel;
-    const lines = [`solid waverider_${cfg.method}`];
+    const tag = cfg.method === "rv" ? `rv_${cfg.rvBodyType}_${cfg.rvNoseType}` : `waverider_${cfg.method}`;
+    const lines = [`solid ${tag}`];
     for (let f = 0; f < faces.length; f++) {
       const n = faceNormals[f];
       const [i1, i2, i3] = faces[f];
@@ -1193,15 +1616,16 @@
       lines.push("    endloop");
       lines.push("  endfacet");
     }
-    lines.push(`endsolid waverider_${cfg.method}`);
-    downloadBlob(lines.join("\n"), `waverider_${cfg.method}_watertight.stl`, "model/stl");
+    lines.push(`endsolid ${tag}`);
+    downloadBlob(lines.join("\n"), `${tag}_watertight.stl`, "model/stl");
   });
 
   document.getElementById("btn-export-obj").addEventListener("click", () => {
     if (!currentModel) return;
     const { vertices, faces, facePatch, cfg } = currentModel;
+    const tag = cfg.method === "rv" ? `rv_${cfg.rvBodyType}_${cfg.rvNoseType}` : `waverider_${cfg.method}`;
     const lines = [
-      "# Watertight Hypersonic Waverider Glide Body",
+      cfg.method === "rv" ? "# Watertight Hypersonic Reentry Vehicle (RV)" : "# Watertight Hypersonic Waverider Glide Body",
       `# Vertices: ${vertices.length} | Faces: ${faces.length}`,
       ""
     ];
@@ -1225,7 +1649,7 @@
         }
       }
     }
-    downloadBlob(lines.join("\n"), `waverider_${cfg.method}_watertight.obj`, "model/obj");
+    downloadBlob(lines.join("\n"), `${tag}_watertight.obj`, "model/obj");
   });
 
   // Modals: MATLAB Code & Figure Gallery
@@ -1240,32 +1664,60 @@
     const elLook = parseFloat(document.getElementById("rng-rcsel").value);
     const rtiAz = parseFloat(document.getElementById("rng-rtiaz").value);
     const winType = document.getElementById("sel-window").value;
+    const pol = document.getElementById("sel-pol").value;
+
+    const cfgLines = cfg.method === "rv"
+      ? [
+          "cfg = waverider.WaveriderConfig( ...",
+          "    'Method', 'rv', ...",
+          `    'RVBodyType', '${cfg.rvBodyType}', ...`,
+          `    'RVNoseType', '${cfg.rvNoseType}', ...`,
+          `    'RVNoseBluntnessRatio', ${cfg.rvBluntness.toFixed(2)}, ...`,
+          `    'Mach', ${cfg.mach.toFixed(2)}, ...`,
+          `    'Length', ${cfg.length.toFixed(2)}, ...`,
+          `    'RVConeAnglesDeg', [${cfg.rvConeAngles.map((v) => v.toFixed(2)).join(", ")}], ...`,
+          `    'RVStageFractions', [${cfg.rvStageFractions.map((v) => v.toFixed(3)).join(", ")}], ...`,
+          `    'RVAftType', '${cfg.rvAftType}', ...`,
+          `    'RVAftCavityDepthRatio', ${cfg.rvAftDepth.toFixed(2)}, ...`,
+          `    'RVAftCavityPower', ${cfg.rvAftPower.toFixed(2)}, ...`,
+          `    'EnableAftFrustum', ${cfg.frustum}, ...`,
+          `    'FrustumLength', ${cfg.flength.toFixed(2)}, ...`,
+          `    'BoosterRadius', ${cfg.bradius.toFixed(2)}, ...`,
+          `    'FrustumBlendLaw', '${cfg.blend}', ...`,
+          `    'EnableRocketStage', ${cfg.rocket}, ...`,
+          `    'RocketConeAngleDeg', ${cfg.rcone.toFixed(2)});`
+        ]
+      : [
+          "cfg = waverider.WaveriderConfig( ...",
+          `    'Method', '${cfg.method}', ...`,
+          `    'Mach', ${cfg.mach.toFixed(2)}, ...`,
+          `    'ShockAngleDeg', ${cfg.beta.toFixed(2)}, ...`,
+          `    'Length', ${cfg.length.toFixed(2)}, ...`,
+          `    'HalfSpan', ${cfg.span.toFixed(2)}, ...`,
+          `    'PlanformPower', ${cfg.power.toFixed(2)}, ...`,
+          `    'LeadingEdgeAnhedralDeg', ${cfg.anhedral.toFixed(2)}, ...`,
+          `    'UpperSurfaceType', '${cfg.canopy > 0 ? "canopy" : "freestream"}', ...`,
+          `    'CanopyHeightRatio', ${cfg.canopy.toFixed(3)}, ...`,
+          `    'EnableAftFrustum', ${cfg.frustum}, ...`,
+          `    'FrustumLength', ${cfg.flength.toFixed(2)}, ...`,
+          `    'BoosterRadius', ${cfg.bradius.toFixed(2)}, ...`,
+          `    'FrustumBlendLaw', '${cfg.blend}', ...`,
+          `    'EnableRocketStage', ${cfg.rocket}, ...`,
+          `    'RocketConeAngleDeg', ${cfg.rcone.toFixed(2)});`
+        ];
+
+    const stlOut = cfg.method === "rv" ? "output/custom_rv.stl" : "output/custom_waverider.stl";
     const code = [
       "setup_waverider();",
       "",
-      "cfg = waverider.WaveriderConfig( ...",
-      `    'Method', '${cfg.method}', ...`,
-      `    'Mach', ${cfg.mach.toFixed(2)}, ...`,
-      `    'ShockAngleDeg', ${cfg.beta.toFixed(2)}, ...`,
-      `    'Length', ${cfg.length.toFixed(2)}, ...`,
-      `    'HalfSpan', ${cfg.span.toFixed(2)}, ...`,
-      `    'PlanformPower', ${cfg.power.toFixed(2)}, ...`,
-      `    'LeadingEdgeAnhedralDeg', ${cfg.anhedral.toFixed(2)}, ...`,
-      `    'UpperSurfaceType', '${cfg.canopy > 0 ? "canopy" : "freestream"}', ...`,
-      `    'CanopyHeightRatio', ${cfg.canopy.toFixed(3)}, ...`,
-      `    'EnableAftFrustum', ${cfg.frustum}, ...`,
-      `    'FrustumLength', ${cfg.flength.toFixed(2)}, ...`,
-      `    'BoosterRadius', ${cfg.bradius.toFixed(2)}, ...`,
-      `    'FrustumBlendLaw', '${cfg.blend}', ...`,
-      `    'EnableRocketStage', ${cfg.rocket}, ...`,
-      `    'RocketConeAngleDeg', ${cfg.rcone.toFixed(2)});`,
+      ...cfgLines,
       "",
       "body = waverider.WaveriderBody(cfg);",
       "body.printSummary();",
       "body.plot();",
-      "body.plotRCS();",
-      `waverider.viz.plotRangeAngleIntensity(body, 'CenterFreqGHz', ${fcGHz.toFixed(1)}, 'BandwidthMHz', ${bwMHz.toFixed(0)}, 'ElevationDeg', ${elLook.toFixed(1)}, 'CutAzimuthDeg', ${rtiAz.toFixed(0)}, 'Window', '${winType}');`,
-      "body.exportSTL('output/custom_waverider.stl');"
+      `body.plotRCS('Polarization', '${pol}', 'VentralElevationDeg', ${elLook.toFixed(1)});`,
+      `waverider.viz.plotRangeAngleIntensity(body, 'CenterFreqGHz', ${fcGHz.toFixed(1)}, 'BandwidthMHz', ${bwMHz.toFixed(0)}, 'ElevationDeg', ${elLook.toFixed(1)}, 'CutAzimuthDeg', ${rtiAz.toFixed(0)}, 'WindowType', '${winType}', 'Polarization', '${pol}');`,
+      `body.exportSTL('${stlOut}');`
     ].join("\n");
     document.getElementById("matlab-code-output").textContent = code;
     dlgMatlab.showModal();
@@ -1275,33 +1727,60 @@
     dlgGallery.showModal();
   });
 
-  // Preset Buttons
+  // Preset Buttons (both Waverider and Reentry Vehicle presets)
   document.querySelectorAll("[data-preset]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const p = PRESETS[btn.getAttribute("data-preset")];
       if (!p) return;
-      document.getElementById("sel-method").value = p.method;
-      document.getElementById("rng-mach").value = p.mach;
-      document.getElementById("rng-beta").value = p.beta;
-      document.getElementById("rng-length").value = p.length;
-      document.getElementById("rng-span").value = p.span;
-      document.getElementById("rng-power").value = p.power;
-      document.getElementById("rng-anhedral").value = p.anhedral;
-      document.getElementById("rng-canopy").value = p.canopy;
-      document.getElementById("chk-frustum").checked = p.frustum;
-      document.getElementById("rng-flength").value = p.flength;
-      document.getElementById("rng-bradius").value = p.bradius;
-      document.getElementById("sel-blend").value = p.blend;
-      document.getElementById("chk-rocket").checked = p.rocket;
-      document.getElementById("rng-rcone").value = p.rcone;
+      if (p.arch === "rv") {
+        hasInitializedRVTab = true;
+        setCheckedRadio("rv-body-type", p.rvBodyType);
+        setCheckedRadio("rv-nose-type", p.rvNoseType);
+        setCheckedRadio("rv-aft-type", p.rvAftType);
+        document.getElementById("rng-rv-mach").value = p.rvMach;
+        document.getElementById("rng-rv-length").value = p.rvLength;
+        document.getElementById("rng-rv-bluntness").value = p.rvBluntness;
+        document.getElementById("rng-rv-cone1").value = p.rvCone1;
+        document.getElementById("rng-rv-cone2").value = p.rvCone2;
+        document.getElementById("rng-rv-cone3").value = p.rvCone3;
+        document.getElementById("rng-rv-frac1").value = p.rvFrac1;
+        document.getElementById("rng-rv-aftdepth").value = p.rvAftDepth;
+        document.getElementById("rng-rv-aftpower").value = p.rvAftPower;
+        document.getElementById("chk-frustum").checked = p.frustum;
+        document.getElementById("chk-rocket").checked = p.rocket;
+        const tabRV = document.getElementById("tab-rv");
+        if (tabRV && activeArch !== "rv") {
+          selectVehicleTab(tabRV, false);
+        }
+      } else {
+        document.getElementById("sel-method").value = p.method;
+        document.getElementById("rng-mach").value = p.mach;
+        document.getElementById("rng-beta").value = p.beta;
+        document.getElementById("rng-length").value = p.length;
+        document.getElementById("rng-span").value = p.span;
+        document.getElementById("rng-power").value = p.power;
+        document.getElementById("rng-anhedral").value = p.anhedral;
+        document.getElementById("rng-canopy").value = p.canopy;
+        document.getElementById("chk-frustum").checked = p.frustum;
+        document.getElementById("rng-flength").value = p.flength;
+        document.getElementById("rng-bradius").value = p.bradius;
+        document.getElementById("sel-blend").value = p.blend;
+        document.getElementById("chk-rocket").checked = p.rocket;
+        document.getElementById("rng-rcone").value = p.rcone;
+        const tabWave = document.getElementById("tab-waverider");
+        if (tabWave && activeArch !== "waverider") {
+          selectVehicleTab(tabWave, false);
+        }
+      }
       enforcePhysicalSliderBounds();
+      syncRVConditionalInertStates();
       rangeInputs.forEach(syncSliderVars);
       scheduleUpdate("geometry");
     });
   });
 
   // Bind each control to its exact minimum update tier (single event per control)
-  const rcsControlIds = new Set(["rng-rcsel", "rng-fc", "rng-bw", "sel-window", "chk-multibounce"]);
+  const rcsControlIds = new Set(["sel-pol", "rng-rcsel", "rng-fc", "rng-bw", "sel-window", "chk-multibounce"]);
   const view3DControlIds = new Set(["chk-shock", "chk-rays", "chk-wireframe"]);
 
   document.querySelectorAll(".sidebar-controls input, .sidebar-controls select").forEach((el) => {

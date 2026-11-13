@@ -7,16 +7,16 @@ Every mathematical module in `+waverider/` (MATLAB) and `docs/physics.js` (Web S
 ## 1. How to Run All Test Suites
 
 ```bash
-# 1. Node.js Web Studio validation suite (26 checks, ~5 seconds)
+# 1. Node.js Web Studio validation suite (36 checks, ~6 seconds)
 node tests/web/validate_physics.mjs
 ```
 
 ```matlab
-% 2. MATLAB unit, manifold & export suite (12 checks)
+% 2. MATLAB unit, manifold & export suite (16 checks)
 setup_waverider();
 run('tests/test_waverider_suite.m');
 
-% 3. MATLAB physics, generalized winding number & canonical CEM suite (23 checks)
+% 3. MATLAB physics, generalized winding number, canonical CEM, polarimetry & RV suite (33 checks)
 run('tests/test_physics_validation.m');
 ```
 
@@ -76,5 +76,27 @@ Two small point-like facets separated by $2.000\text{ m}$ along $X$ at $f_c = 10
 | :--- | :--- | :---: | :---: | :---: | :---: |
 | **E1** Nonweiler caret theorem | $C_L = C_{p,2}$, $C_{D,w} = C_{p,2}\tan\delta$, $L/D = \cot\delta$ [6] | $< 10^{-11}$ | $1.2\times 10^{-14}$ | $3.82\times 10^{-14}$ | **PASS** |
 | **E2** Off-design calibration | `computeAeroPolar(0) == AeroMetrics` across all presets | $< 10^{-13}$ | $0.00$ | $0.00$ | **PASS** |
-| **E3** Bilateral symmetry | $\lvert C_Y\rvert = 0$ and $\sigma(+\psi) = \sigma(-\psi)$ | $< 10^{-11}\text{ dB}$ | $1.8\times 10^{-12}\text{ dB}$ | $1.76\times 10^{-12}\text{ dB}$ | **PASS** |
-| **E4** Full Web Studio latency | Mesh + 5-band Az + 3-band El + 61-angle RTI (`booster_mounted`) | $< 250\text{ ms}$ | N/A | **$159.4\text{ ms}$** | **PASS** |
+| **E3** Bilateral symmetry | $\lvert C_Y\rvert = 0$ and $\sigma(+\psi) = \sigma(-\psi)$ | $< 10^{-11}\text{ dB}$ | $9.3\times 10^{-13}\text{ dB}$ | $1.76\times 10^{-12}\text{ dB}$ | **PASS** |
+| **E4** Full Web Studio latency | Mesh + 5-band Az + 3-band El + 61-angle RTI (`booster_mounted`, all polarizations) | $< 250\text{ ms}$ | N/A | **$144.2\text{ ms}$** | **PASS** |
+
+---
+
+### F. Full Polarimetric Sinclair Matrix (`HH`, `VV`, `HV`, `VH`) & Circular Basis (`PP`, `OP`) (`F1–F5`)
+| Check | Canonical Polarimetric Theorem / Invariant [17] | Tolerance | MATLAB Result | Web JS Result | Status |
+| :--- | :--- | :---: | :---: | :---: | :---: |
+| **F1** PEC plate polarimetry | $1\text{ m}\times 1\text{ m}$ plate: $HH = VV = PP = \sigma_0$, $HV = VH = OP = 0$ ($-50\text{ dBsm}$ floor) | $< 0.05\text{ dB}$ | $3.11\times 10^{-9}\text{ dB}$ | $3.11\times 10^{-9}\text{ dB}$ | **PASS** |
+| **F2** $0^\circ$ aligned $90^\circ$ dihedral | $S_{HH}^{\text{MB}} = -S_{VV}^{\text{MB}}$, $OP = +38.45\text{ dBsm}$, $\lvert S_{PP}^{\text{MB}}\rvert / \lvert S_{OP}^{\text{MB}}\rvert = 0$, $HV = 0$ | $< 0.2\text{ dB}$, $< 10^{-12}$ | $6.80\times 10^{-16}$, $OP - PP = 37.7\text{ dB}$ | $2.55\times 10^{-16}$, $OP - PP = 37.7\text{ dB}$ | **PASS** |
+| **F3** $45^\circ$-canted $90^\circ$ dihedral | $100\%$ cross-pol conversion ($HV = VH = +38.45\text{ dBsm}$, $S_{HH}^{\text{MB}} = S_{VV}^{\text{MB}} = 0$) & roll-invariant $OP$ | $< 0.2\text{ dB}$, $< 10^{-10}\text{ dB}$ | $\lvert OP(45^\circ)-OP(0^\circ)\rvert = 2.13\times 10^{-14}\text{ dB}$ | $\lvert OP(45^\circ)-OP(0^\circ)\rvert = 1.42\times 10^{-14}\text{ dB}$ | **PASS** |
+| **F4** 3D waverider polarimetry | Lorentz reciprocity $\lvert S_{HV}-S_{VH}\rvert = 0$, Parseval span conservation, & mirror handedness $OP(+\psi) = LL(-\psi)$ | $< 10^{-13}$, $< 10^{-9}\text{ dB}$ | $0.00$, span $2.70\times 10^{-16}$, mirror $6.54\times 10^{-13}\text{ dB}$ | $0.00$, span $2.89\times 10^{-16}$, mirror $4.40\times 10^{-11}\text{ dB}$ | **PASS** |
+| **F5** Polarimetric HRRP / RTI | `OP` & `HV` reject $100\%$ of 1-bounce PO clutter ($-50\text{ dBsm}$) while isolating delayed 2-bounce cavity returns | $< 10^{-12}\text{ dB}$ | 1-bounce $-50.0\text{ dBsm}$, 2-bounce $-19.3\text{ dBsm}$ | 1-bounce $-50.0\text{ dBsm}$, 2-bounce $-9.4\text{ dBsm}$ | **PASS** |
+
+---
+
+### G. Conventional Axisymmetric Reentry Vehicles (`RV` Topology, Volumes, Aero & Concave Aft RCS) (`G1–G5`)
+| Check | Analytical / Topological Benchmark | Tolerance | MATLAB Result | Web JS Result | Status |
+| :--- | :--- | :---: | :---: | :---: | :---: |
+| **G1** 19-config RV manifold & cavity winding | $3\times 3\times 2$ (`mono`/`bi`/`tri` $\times$ `conical`/`spherical`/`ogive` $\times$ `flat`/`concave`) + booster RV: $\chi = 2$, $W_{\text{in}}=1$, $W_{\text{out}}=W_{\text{cav}}=0$ | 0 failures, $< 10^{-6}$ | 19 / 19 clean, $\max\lvert\Delta W\rvert = 1.80\times 10^{-14}$ | 19 / 19 clean, $\max\lvert\Delta W\rvert = 2.53\times 10^{-14}$ | **PASS** |
+| **G2** Cone & paraboloid cavity volumes | Exact cone $V = \frac{1}{3}\pi R_b^2 L$ & recessed $p=2$ dome $\Delta V = \frac{1}{2}\pi R_b^2 d_{\text{aft}}$ | $< 0.2\%$, $< 1.0\%$ | Cone $0.008\%$, cap $0.156\%$ | Cone $0.008\%$, cap $0.156\%$ | **PASS** |
+| **G3** Sharp-cone TM drag & RV axisymmetry | $C_{D,\text{wave}} S_{\text{plan}}/(\pi R_b^2) = C_{p,\text{cone}}$, $\lvert C_L(0^\circ)\rvert = \lvert C_Y(0^\circ)\rvert = \lvert C_m(0^\circ)\rvert = 0$, $C_L(+\alpha) = -C_L(-\alpha)$ | $< 0.2\%$, $< 10^{-13}$ | $0.008\%$, $\max = 8.64\times 10^{-17}$ | $0.008\%$, $\max = 1.33\times 10^{-16}$ | **PASS** |
+| **G4** RV radar symmetry & circular disk tail-on | $\sigma(+\psi)=\sigma(-\psi)$, $\sigma(+\theta_{\text{el}})=\sigma(-\theta_{\text{el}})$, flat aft tail-on ($\psi=180^\circ$) $\sigma = 4\pi(\pi R_b^2)^2/\lambda^2$, $OP=0$ | $< 0.05\text{ dB}$ | $+40.34\text{ dBsm}$ ($0.001\text{ dB}$ err) | $+40.34\text{ dBsm}$ ($0.001\text{ dB}$ err) | **PASS** |
+| **G5** Concave vs. flat RV aft plane (`OP` & HRRP) | Off-tail ($\psi=168^\circ$, $10\text{ GHz}$, $B=2000\text{ MHz}$): flat `OP` $= -50\text{ dBsm}$ vs. concave `OP` $> +10\text{ dBsm}$ & delayed cavity HRRP peak | $> +10\text{ dBsm}$, $\Delta R_{\text{cav}} > 20\text{ cm}$ | Flat $-50.0 \to$ Concave $+13.29\text{ dBsm}$, $+56.0\text{ cm}$ | Flat $-50.0 \to$ Concave $+13.29\text{ dBsm}$, $+55.7\text{ cm}$ | **PASS** |

@@ -128,7 +128,36 @@ function results = test_waverider_suite()
     fprintf('[PASS] Range-Angle-Intensity verified (B=1000 MHz -> DeltaR = %.2f cm, B=200 MHz -> DeltaR = %.2f cm)\n', ...
         rti1000.deltaR_m * 100, rti200.deltaR_m * 100);
 
+    % 6. Test Conventional Reentry Vehicle (RV) Presets & Polarimetric RCS
+    rvPresets = {'rv_monoconic', 'rv_biconic', 'rv_triconic_flare', 'rv_sharp_conic'};
+    for p = 1:numel(rvPresets)
+        idx = idx + 1;
+        cfgRV = waverider.WaveriderConfig.fromPreset(rvPresets{p});
+        bodyRV = waverider.WaveriderBody(cfgRV);
+        repRV = bodyRV.Report;
+
+        assert(repRV.IsWatertight, sprintf('RV preset %s failed watertight check.', rvPresets{p}));
+        assert(repRV.NumBoundaryEdges == 0, 'RV mesh has open boundary edges.');
+        assert(repRV.NumNonManifoldEdges == 0, 'RV mesh has non-manifold edges.');
+        assert(repRV.NumConflictingHalfEdges == 0, 'RV mesh has conflicting half-edges.');
+        assert(repRV.EulerCharacteristic == 2, 'RV mesh must have Euler characteristic = 2.');
+        assert(abs(bodyRV.AeroMetrics.CL) < 1e-13 && abs(bodyRV.AeroMetrics.CY) < 1e-13, ...
+            'Axisymmetric RV at alpha=0 must have zero lift and zero side force.');
+
+        rcsRV = bodyRV.computeRCS(10.0, [0; 90; 170], 0.0, 'Polarization', 'OP');
+        assert(all(isfinite(rcsRV.SigmaTotal_dBsm(:))), 'RV polarimetric RCS returned non-finite values.');
+
+        fprintf('[PASS] %-18s | Nose: %-9s | Aft: %-7s | Faces: %5d | Vol: %6.3f m^3 | CDw: %.4f | Euler: %d\n', ...
+            rvPresets{p}, cfgRV.RVNoseType, cfgRV.RVAftType, repRV.NumFaces, ...
+            repRV.EnclosedVolume, bodyRV.AeroMetrics.CD_wave, repRV.EulerCharacteristic);
+
+        results(idx).Preset = rvPresets{p};
+        results(idx).UpperMode = cfgRV.RVAftType;
+        results(idx).Report = repRV;
+        results(idx).Aero = bodyRV.AeroMetrics;
+    end
+
     fprintf('================================================================\n');
-    fprintf('  ALL %d WAVERIDER TEST CONFIGURATIONS PASSED 100%%!\n', idx);
+    fprintf('  ALL %d WAVERIDER & RV TEST CONFIGURATIONS PASSED 100%%!\n', idx);
     fprintf('================================================================\n');
 end

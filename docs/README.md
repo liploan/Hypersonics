@@ -6,9 +6,9 @@ This folder is served directly by GitHub Pages at **https://liploan.github.io/Hy
 
 ## Pages & Modules
 
-- **[`index.html`](index.html)** — Interactive 6-panel Hypersonic Watertight Waverider & UHF–X Band RCS Studio:
-  1. Interactive 3D watertight mesh viewport with orbit/zoom, attached shock wave sheet, and ventral concave double-bounce ray overlays
-  2. Cross-sectional trailing-edge, shock trace, and conformal booster frustum morphing contour view
+- **[`index.html`](index.html)** — Interactive 6-panel Hypersonic Watertight Waverider, Conventional Reentry Vehicle (RV) & UHF–X Band RCS Studio:
+  1. Interactive 3D watertight mesh viewport with orbit/zoom, attached/bow shock wave sheet, and concave double-bounce ray overlays (ventral waverider cavities, recessed RV aft domes, and flared RV conic junctions)
+  2. Cross-sectional trailing-edge/frustum contour view (Waverider tab) or dimensioned meridional $X$–$R$ outer-mold-line & aft-cavity blueprint (Reentry Vehicle tab)
   3. Multi-band azimuthal monostatic RCS ($\psi \in [0^\circ, 180^\circ]$ across UHF $0.5$, L $1.5$, S $3.0$, C $6.0$, and X $10.0\text{ GHz}$)
   4. Ventral ($\theta_{\text{el}} < 0^\circ$) vs. dorsal ($\theta_{\text{el}} > 0^\circ$) elevation cut comparing total (Gordon PO + GO-PO 2-bounce) against single-bounce PO
   5. Interactive 2D Range–Angle–Intensity (RTI) radar sinogram with nose/base/booster range loci and click-to-slice azimuth cursor
@@ -27,7 +27,7 @@ This folder is served directly by GitHub Pages at **https://liploan.github.io/Hy
 # Serve locally on http://localhost:3000
 npx serve docs
 
-# Run syntax & 26-check physics validation suite
+# Run syntax & 36-check physics, polarimetry + RV validation suite
 node --check docs/physics.js
 node --check docs/app.js
 node tests/web/validate_physics.mjs

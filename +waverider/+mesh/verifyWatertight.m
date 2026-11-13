@@ -121,9 +121,15 @@ function report = verifyWatertight(meshData, cfg, surfData)
     report.FrustumArea = frustumArea;
     report.RocketStageArea = rocketArea;
     report.BaseArea = baseArea;
+    report.ProjectedBaseArea = 0.5 * sum(max(cross23(isBase, 1), 0.0));
     report.TotalSurfaceArea = totalArea;
     report.VolumetricEfficiency = volEfficiency;
     if nargin >= 2 && ~isempty(cfg)
-        report.AspectRatio = (2.0 * cfg.HalfSpan)^2 / max(planformArea, 1e-12);
+        if nargin >= 3 && ~isempty(surfData) && isfield(surfData, 'HalfSpanEffective')
+            bHalfEff = surfData.HalfSpanEffective;
+        else
+            bHalfEff = cfg.HalfSpan;
+        end
+        report.AspectRatio = (2.0 * bHalfEff)^2 / max(planformArea, 1e-12);
     end
 end

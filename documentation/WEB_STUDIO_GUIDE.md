@@ -48,11 +48,30 @@ const model = phys.buildWaveriderModel({
 });
 console.log(model.isWatertight, model.euler, model.enclosedVol, model.LD_inviscid);
 
-// 3. Multi-frequency monostatic RCS (shares culling & polygon clipping across bands)
-const rcsBands = phys.evaluateRCSMultiFreq(model, [0.5, 1.5, 3.0, 6.0, 10.0], 45.0, -22.0, true);
+// 2b. Or build an axisymmetric bi-conic Reentry Vehicle (RV) with recessed concave aft bulkhead
+const rvModel = phys.buildWaveriderModel({
+  method: "rv",
+  mach: 7.0,
+  length: 3.2,
+  rvBodyType: "bi_conic",       // "mono_conic" | "bi_conic" | "tri_conic"
+  rvNoseType: "spherical",      // "conical" | "spherical" | "ogive"
+  rvBluntness: 0.18,
+  rvConeAngles: [11.5, 6.0, 12.0],
+  rvStageFractions: [0.42, 0.58, 0.0],
+  rvAftType: "concave",         // "flat" | "concave"
+  rvAftDepth: 0.45,
+  rvAftPower: 2.6
+});
 
-// 4. Wideband Range-Angle-Intensity (RTI) & HRRP with Harris spectral window
-const rti = phys.computeRangeAngleIntensity(model, 10.0, 1000.0, -22.0, true, "hann");
+// 3. Multi-frequency polarimetric monostatic RCS (shares culling & polygon clipping across bands & channels)
+//    pol: "Mean" | "HH" | "VV" | "HV" | "VH" | "PP" | "OP" | "LL"
+const rcsBands = phys.evaluateRCSMultiFreq(model, [0.5, 1.5, 3.0, 6.0, 10.0], 45.0, -22.0, true, "HH");
+//    Each entry also exposes rcsBands[fIdx].channels.{Mean, HH, VV, HV, VH, PP, OP, LL, span_m2}
+
+// 4. Wideband polarimetric Range-Angle-Intensity (RTI) & HRRP with Harris spectral window
+const rti = phys.computeRangeAngleIntensity(model, 10.0, 1000.0, -22.0, true, "hann", {
+  polarization: "OP"
+});
 ```
 
 ---
@@ -81,6 +100,8 @@ To evaluate **exact** Gordon (1975) contour Physical Optics + Sutherland–Hodgm
 
 ## 4. Dynamic Physical Guardrails & Accessibility
 
+- **Vehicle Architecture Tab Switcher (`#tab-waverider` / `#tab-rv`)**: Preserves the complete Waverider Studio as the default initial view while letting users switch via click or WAI-ARIA `ArrowLeft`/`ArrowRight`/`Home`/`End` keyboard navigation to **Reentry Vehicle (RV)** mode (`#panel-rv`, using `hidden="until-found"` and `inert` sub-group toggling for inactive conic stages, sharp-nose bluntness, and flat aft cavity sliders). In RV mode, Panel 2 (`#canvas-sections`) automatically switches to a dimensioned **Meridional $X$–$R$ Blueprint Profile** displaying nose tangency, stage break rings, recessed aft bulkhead wall thickness, and shock envelope.
 - **Mach-Cone Shock Floor**: Whenever `M∞` changes, `#rng-beta` dynamically updates its minimum to $\lceil 2(\arcsin(1/M_\infty) + 1^\circ)\rceil / 2$, preventing unphysical detached/sub-Mach shock angles.
 - **Positive-Frequency Bandwidth Ceiling**: Whenever `f_c` changes, `#rng-bw` dynamically caps $B \le 0.95\,f_c$ (e.g., $450\text{ MHz}$ at $0.5\text{ GHz}$ UHF), guaranteeing strictly positive spectral support $[f_c - B/2, f_c + B/2]$.
-- **WCAG AA & Assistive Technology**: Semantic landmarks (`<header>`, `<nav aria-label="Primary">`, `<aside>`, `<main>`, `<footer>`), descriptive `role="img"` + `aria-label` on all 6 canvases, non-color-only topology status badges (`✓ PASS` vs `⚠ FAIL`), and external sibling `role="status"` copy tooltips with VoiceOver repeat-announcement deduplication.
+- **Radar Polarization Selector (`#sel-pol`)**: Section 4 exposes all 7 radar channels (`Mean`, linear `HH`, `VV`, `HV`, `VH`, and circular `PP` [RL/LR], `OP` [RR/LL]), updating Panels 3, 4, 5, 6, the X-band KPI readout, and the live MATLAB code generator on the `'rcs'` fast path without rebuilding the 3D mesh. Selecting `OP` or `HV`/`VH` suppresses single-bounce PO clutter ($-50\text{ dBsm}$ floor) and isolates delayed ventral cavity double-bounce returns directly in the RTI sinogram and HRRP cut.
+- **WCAG AA & Assistive Technology**: Semantic landmarks (`<header>`, `<nav aria-label="Primary">`, `<aside>`, `<main>`, `<footer>`), concise `<label>` + persistent above-input `aria-describedby` helper hints, `@media (pointer: coarse)` $48\text{ px}$ touch targets (`font-size: max(1rem, 1em)`), descriptive `role="img"` + `aria-label` on all 6 canvases, non-color-only topology status badges (`✓ PASS` vs `⚠ FAIL`), and external sibling `role="status"` copy tooltips with VoiceOver repeat-announcement deduplication.

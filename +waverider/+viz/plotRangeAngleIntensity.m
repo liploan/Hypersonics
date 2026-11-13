@@ -11,6 +11,8 @@ function fig = plotRangeAngleIntensity(body, varargin)
     addParameter(p, 'BandwidthMHz', 1000.0, @isnumeric);
     addParameter(p, 'ElevationDeg', -22.0, @isnumeric);
     addParameter(p, 'CutAzimuthDeg', 45.0, @isnumeric);
+    addParameter(p, 'WindowType', 'hann', @(x) ischar(x) || isstring(x));
+    addParameter(p, 'Polarization', 'Mean', @(x) ischar(x) || isstring(x));
     addParameter(p, 'Visible', 'on', @(x) ischar(x) || isstring(x));
     addParameter(p, 'SavePath', '', @(x) ischar(x) || isstring(x));
     parse(p, varargin{:});
@@ -20,30 +22,36 @@ function fig = plotRangeAngleIntensity(body, varargin)
     bw = opts.BandwidthMHz;
     elLook = opts.ElevationDeg;
     azCut = opts.CutAzimuthDeg;
+    winType = opts.WindowType;
+    polIn = opts.Polarization;
 
     azVec = linspace(0, 180, 121);
     pairs = waverider.rcs.buildConcavePairList(body);
 
     % Compute primary RTI at configured bandwidth
     rtiMain = waverider.rcs.computeRangeProfile(body, fc, bw, azVec, elLook, ...
-        'IncludeMultiBounce', true, 'WindowType', 'hann', 'PrecomputedConcavePairs', pairs);
+        'IncludeMultiBounce', true, 'WindowType', winType, 'Polarization', polIn, ...
+        'PrecomputedConcavePairs', pairs);
 
     % Compute multi-bandwidth HRRP cuts at azCut
     bwList = [150, 600, 2000];
     rtiLowBW  = waverider.rcs.computeRangeProfile(body, fc, bwList(1), azCut, elLook, ...
-        'IncludeMultiBounce', true, 'WindowType', 'hann', 'PrecomputedConcavePairs', pairs);
+        'IncludeMultiBounce', true, 'WindowType', winType, 'Polarization', polIn, ...
+        'PrecomputedConcavePairs', pairs);
     rtiMedBW  = waverider.rcs.computeRangeProfile(body, fc, bwList(2), azCut, elLook, ...
-        'IncludeMultiBounce', true, 'WindowType', 'hann', 'PrecomputedConcavePairs', pairs);
+        'IncludeMultiBounce', true, 'WindowType', winType, 'Polarization', polIn, ...
+        'PrecomputedConcavePairs', pairs);
     rtiHighBW = waverider.rcs.computeRangeProfile(body, fc, bwList(3), azCut, elLook, ...
-        'IncludeMultiBounce', true, 'WindowType', 'hann', 'PrecomputedConcavePairs', pairs);
+        'IncludeMultiBounce', true, 'WindowType', winType, 'Polarization', polIn, ...
+        'PrecomputedConcavePairs', pairs);
 
     fig = figure('Name', 'Waverider Range-Angle-Intensity & Waveform Bandwidth Analysis', ...
         'Color', 'w', 'Position', [60, 60, 1460, 900], 'Visible', opts.Visible);
     waverider.viz.stylePublicationFigure(fig, 'init');
 
     tl = tiledlayout(fig, 2, 2, 'TileSpacing', 'loose', 'Padding', 'compact');
-    title(tl, sprintf('Range-Angle-Intensity (Sinogram) & Waveform Bandwidth Analysis  (f_c = %.1f GHz, B = %.0f MHz, \\DeltaR = %.1f cm, \\theta_{el} = %.0f^\\circ)', ...
-        fc, bw, rtiMain.deltaR_m * 100, elLook), ...
+    title(tl, sprintf('Range-Angle-Intensity (Sinogram) & Waveform Bandwidth Analysis  (f_c = %.1f GHz, B = %.0f MHz, \\DeltaR = %.1f cm, \\theta_{el} = %.0f^\\circ, Pol: %s)', ...
+        fc, bw, rtiMain.deltaR_m * 100, elLook, rtiMain.polarization), ...
         'FontSize', 14, 'FontWeight', 'bold');
 
     % ---------------------------------------------------------------------

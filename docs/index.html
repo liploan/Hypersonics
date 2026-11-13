@@ -29,91 +29,263 @@
   </header>
 
   <div class="dashboard-layout">
-    <aside class="sidebar-controls" aria-label="Waverider Parametric Controls">
-      <!-- 1. Waverider Family & Presets -->
-      <section class="control-group">
-        <h2>1. Waverider Family &amp; Presets</h2>
-        <div class="preset-row">
-          <button type="button" data-preset="osculating_cone">Osculating Cone</button>
-          <button type="button" data-preset="conical">Conical (TM)</button>
-          <button type="button" data-preset="caret">Caret (Wedge)</button>
-          <button type="button" data-preset="cst">CST Boost-Glide</button>
-        </div>
-        <button type="button" data-preset="booster_mounted" style="width:100%; margin-bottom:0.65rem;">
-          Preset: Waverider + Conformal Booster Mount
-        </button>
+    <aside class="sidebar-controls" aria-label="Vehicle Parametric Controls">
+      <!-- Vehicle Architecture Switcher (Waverider default vs. Conventional Reentry Vehicle) -->
+      <div class="arch-tabs" role="tablist" aria-label="Vehicle Architecture">
+        <button
+          type="button"
+          role="tab"
+          id="tab-waverider"
+          aria-selected="true"
+          aria-controls="panel-waverider"
+          tabindex="0"
+        >Waverider</button>
+        <button
+          type="button"
+          role="tab"
+          id="tab-rv"
+          aria-selected="false"
+          aria-controls="panel-rv"
+          tabindex="-1"
+        >Reentry Vehicle (RV)</button>
+      </div>
 
-        <div class="field-row">
-          <label class="field-label" for="sel-method">Generation Method</label>
-          <select id="sel-method">
-            <option value="osculating_cone" selected>Osculating Cones (Sobieczky)</option>
-            <option value="conical">Axisymmetric Cone-Derived (Taylor-Maccoll)</option>
-            <option value="caret">Nonweiler Caret / 2D Oblique Wedge</option>
-            <option value="cst">Kulfan CST Boost-Glide Body</option>
-          </select>
-        </div>
-      </section>
+      <!-- TAB PANEL 1: Waverider Glide Body (Default Active, 100% Preserved) -->
+      <div role="tabpanel" id="panel-waverider" aria-labelledby="tab-waverider">
+        <div class="arch-panel-inner">
+          <!-- 1. Waverider Family & Presets -->
+          <section class="control-group">
+            <h2>1. Waverider Family &amp; Presets</h2>
+            <div class="preset-row">
+              <button type="button" data-preset="osculating_cone">Osculating Cone</button>
+              <button type="button" data-preset="conical">Conical (TM)</button>
+              <button type="button" data-preset="caret">Caret (Wedge)</button>
+              <button type="button" data-preset="cst">CST Boost-Glide</button>
+            </div>
+            <button type="button" data-preset="booster_mounted" style="width:100%; margin-bottom:0.65rem;">
+              Preset: Waverider + Conformal Booster Mount
+            </button>
 
-      <!-- 2. Flight Condition & Planform Geometry -->
-      <section class="control-group">
-        <h2>2. Planform &amp; Shock Wave</h2>
+            <div class="field-row">
+              <label class="field-label" for="sel-method">Generation Method</label>
+              <select id="sel-method">
+                <option value="osculating_cone" selected>Osculating Cones (Sobieczky)</option>
+                <option value="conical">Axisymmetric Cone-Derived (Taylor-Maccoll)</option>
+                <option value="caret">Nonweiler Caret / 2D Oblique Wedge</option>
+                <option value="cst">Kulfan CST Boost-Glide Body</option>
+              </select>
+            </div>
+          </section>
 
-        <div class="field-row">
-          <label class="field-label" for="rng-mach">
-            <span>Design Mach Number (M<sub>&infin;</sub>)</span>
-            <span class="field-value" id="val-mach">7.0</span>
-          </label>
-          <input type="range" id="rng-mach" min="3.5" max="15.0" step="0.5" value="7.0" />
-        </div>
+          <!-- 2. Flight Condition & Planform Geometry -->
+          <section class="control-group">
+            <h2>2. Planform &amp; Shock Wave</h2>
 
-        <div class="field-row">
-          <label class="field-label" for="rng-beta">
-            <span>Shock Wave Angle (&beta;)</span>
-            <span class="field-value" id="val-beta">13.5&deg;</span>
-          </label>
-          <input type="range" id="rng-beta" min="10.0" max="24.0" step="0.5" value="13.5" />
-        </div>
+            <div class="field-row">
+              <label class="field-label" for="rng-mach">
+                <span>Design Mach Number (M<sub>&infin;</sub>)</span>
+                <span class="field-value" id="val-mach">7.0</span>
+              </label>
+              <input type="range" id="rng-mach" min="3.5" max="15.0" step="0.5" value="7.0" />
+            </div>
 
-        <div class="field-row">
-          <label class="field-label" for="rng-length">
-            <span>Forebody Length (L)</span>
-            <span class="field-value" id="val-length">5.50 m</span>
-          </label>
-          <input type="range" id="rng-length" min="2.5" max="10.0" step="0.25" value="5.5" />
-        </div>
+            <div class="field-row">
+              <label class="field-label" for="rng-beta">
+                <span>Shock Wave Angle (&beta;)</span>
+                <span class="field-value" id="val-beta">13.5&deg;</span>
+              </label>
+              <input type="range" id="rng-beta" min="10.0" max="24.0" step="0.5" value="13.5" />
+            </div>
 
-        <div class="field-row">
-          <label class="field-label" for="rng-span">
-            <span>Half-Span (b / 2)</span>
-            <span class="field-value" id="val-span">1.75 m</span>
-          </label>
-          <input type="range" id="rng-span" min="0.8" max="3.5" step="0.05" value="1.75" />
-        </div>
+            <div class="field-row">
+              <label class="field-label" for="rng-length">
+                <span>Forebody Length (L)</span>
+                <span class="field-value" id="val-length">5.50 m</span>
+              </label>
+              <input type="range" id="rng-length" min="2.5" max="10.0" step="0.25" value="5.5" />
+            </div>
 
-        <div class="field-row">
-          <label class="field-label" for="rng-power">
-            <span>Planform Exponent (P)</span>
-            <span class="field-value" id="val-power">0.62</span>
-          </label>
-          <input type="range" id="rng-power" min="0.35" max="1.25" step="0.03" value="0.62" />
-        </div>
+            <div class="field-row">
+              <label class="field-label" for="rng-span">
+                <span>Half-Span (b / 2)</span>
+                <span class="field-value" id="val-span">1.75 m</span>
+              </label>
+              <input type="range" id="rng-span" min="0.8" max="3.5" step="0.05" value="1.75" />
+            </div>
 
-        <div class="field-row">
-          <label class="field-label" for="rng-anhedral">
-            <span>Underside Anhedral / Concavity (&Gamma;)</span>
-            <span class="field-value" id="val-anhedral">8.0&deg;</span>
-          </label>
-          <input type="range" id="rng-anhedral" min="0.0" max="20.0" step="0.5" value="8.0" />
-        </div>
+            <div class="field-row">
+              <label class="field-label" for="rng-power">
+                <span>Planform Exponent (P)</span>
+                <span class="field-value" id="val-power">0.62</span>
+              </label>
+              <input type="range" id="rng-power" min="0.35" max="1.25" step="0.03" value="0.62" />
+            </div>
 
-        <div class="field-row">
-          <label class="field-label" for="rng-canopy">
-            <span>Dorsal Canopy Height Ratio (h / L)</span>
-            <span class="field-value" id="val-canopy">0.045</span>
-          </label>
-          <input type="range" id="rng-canopy" min="0.000" max="0.120" step="0.005" value="0.045" />
+            <div class="field-row">
+              <label class="field-label" for="rng-anhedral">
+                <span>Underside Anhedral / Concavity (&Gamma;)</span>
+                <span class="field-value" id="val-anhedral">8.0&deg;</span>
+              </label>
+              <input type="range" id="rng-anhedral" min="0.0" max="20.0" step="0.5" value="8.0" />
+            </div>
+
+            <div class="field-row">
+              <label class="field-label" for="rng-canopy">
+                <span>Dorsal Canopy Height Ratio (h / L)</span>
+                <span class="field-value" id="val-canopy">0.045</span>
+              </label>
+              <input type="range" id="rng-canopy" min="0.000" max="0.120" step="0.005" value="0.045" />
+            </div>
+          </section>
         </div>
-      </section>
+      </div>
+
+      <!-- TAB PANEL 2: Conventional Reentry Vehicle (Mono/Bi/Tri-Conic + Nose + Aft Plane) -->
+      <div role="tabpanel" id="panel-rv" aria-labelledby="tab-rv" hidden="until-found">
+        <div class="arch-panel-inner">
+          <section class="control-group">
+            <h2>1. Reentry Vehicle Presets &amp; Shape</h2>
+            <div class="preset-row">
+              <button type="button" data-preset="rv_monoconic">Sphere-Cone RV</button>
+              <button type="button" data-preset="rv_biconic">Bi-Conic + Concave</button>
+              <button type="button" data-preset="rv_triconic_flare">Ogive Tri-Conic</button>
+              <button type="button" data-preset="rv_sharp_conic">Sharp Cone (TM)</button>
+            </div>
+
+            <fieldset class="rv-fieldset">
+              <legend>Conic Body Architecture</legend>
+              <div class="radio-pill-group">
+                <label class="radio-pill">
+                  <input type="radio" name="rv-body-type" value="mono_conic" />
+                  <span>Mono-Conic</span>
+                </label>
+                <label class="radio-pill">
+                  <input type="radio" name="rv-body-type" value="bi_conic" checked />
+                  <span>Bi-Conic</span>
+                </label>
+                <label class="radio-pill">
+                  <input type="radio" name="rv-body-type" value="tri_conic" />
+                  <span>Tri-Conic</span>
+                </label>
+              </div>
+            </fieldset>
+
+            <fieldset class="rv-fieldset">
+              <legend>Nose Tip Geometry</legend>
+              <div class="radio-pill-group">
+                <label class="radio-pill">
+                  <input type="radio" name="rv-nose-type" value="conical" />
+                  <span>Conical</span>
+                </label>
+                <label class="radio-pill">
+                  <input type="radio" name="rv-nose-type" value="spherical" checked />
+                  <span>Spherical</span>
+                </label>
+                <label class="radio-pill">
+                  <input type="radio" name="rv-nose-type" value="ogive" />
+                  <span>Ogive</span>
+                </label>
+              </div>
+            </fieldset>
+          </section>
+
+          <section class="control-group">
+            <h2>2. RV Nose, Conic Stages &amp; Aft Plane</h2>
+
+            <div class="field-row">
+              <label class="field-label" for="rng-rv-mach">
+                <span>Reentry Mach Number (M<sub>&infin;</sub>)</span>
+                <span class="field-value" id="val-rv-mach">14.0</span>
+              </label>
+              <input type="range" id="rng-rv-mach" min="3.5" max="20.0" step="0.5" value="14.0" />
+            </div>
+
+            <div class="field-row">
+              <label class="field-label" for="rng-rv-length">
+                <span>RV Axial Length (L)</span>
+                <span class="field-value" id="val-rv-length">3.10 m</span>
+              </label>
+              <input type="range" id="rng-rv-length" min="1.5" max="6.0" step="0.1" value="3.1" />
+            </div>
+
+            <div id="rv-bluntness-group" class="conditional-group">
+              <div class="field-row">
+                <label class="field-label" for="rng-rv-bluntness">
+                  <span id="lbl-rv-bluntness">Nose Bluntness (R<sub>N</sub> / R<sub>base</sub>)</span>
+                  <span class="field-value" id="val-rv-bluntness">0.22</span>
+                </label>
+                <input type="range" id="rng-rv-bluntness" min="0.02" max="0.60" step="0.02" value="0.22" />
+              </div>
+            </div>
+
+            <div class="field-row">
+              <label class="field-label" for="rng-rv-cone1">
+                <span>Stage 1 Half-Angle (&theta;<sub>1</sub>)</span>
+                <span class="field-value" id="val-rv-cone1">11.5&deg;</span>
+              </label>
+              <input type="range" id="rng-rv-cone1" min="3.0" max="26.0" step="0.5" value="11.5" />
+            </div>
+
+            <div id="rv-stage2-group" class="conditional-group">
+              <div class="field-row">
+                <label class="field-label" for="rng-rv-cone2">
+                  <span>Stage 2 Half-Angle (&theta;<sub>2</sub>)</span>
+                  <span class="field-value" id="val-rv-cone2">6.0&deg;</span>
+                </label>
+                <input type="range" id="rng-rv-cone2" min="-4.0" max="24.0" step="0.5" value="6.0" />
+              </div>
+              <div class="field-row">
+                <label class="field-label" for="rng-rv-frac1">
+                  <span>Stage 1 Axial Split</span>
+                  <span class="field-value" id="val-rv-frac1">0.42</span>
+                </label>
+                <input type="range" id="rng-rv-frac1" min="0.20" max="0.75" step="0.02" value="0.42" />
+              </div>
+            </div>
+
+            <div id="rv-stage3-group" class="conditional-group" inert>
+              <div class="field-row">
+                <label class="field-label" for="rng-rv-cone3">
+                  <span>Stage 3 Flare Angle (&theta;<sub>3</sub>)</span>
+                  <span class="field-value" id="val-rv-cone3">13.5&deg;</span>
+                </label>
+                <input type="range" id="rng-rv-cone3" min="-4.0" max="26.0" step="0.5" value="13.5" />
+              </div>
+            </div>
+
+            <fieldset class="rv-fieldset" style="margin-top:0.35rem;">
+              <legend>Aft Plane Bulkhead</legend>
+              <div class="radio-pill-group">
+                <label class="radio-pill">
+                  <input type="radio" name="rv-aft-type" value="flat" />
+                  <span>Flat Plane</span>
+                </label>
+                <label class="radio-pill">
+                  <input type="radio" name="rv-aft-type" value="concave" checked />
+                  <span>Concave Cavity</span>
+                </label>
+              </div>
+            </fieldset>
+
+            <div id="rv-aft-cavity-group" class="conditional-group">
+              <div class="field-row">
+                <label class="field-label" for="rng-rv-aftdepth">
+                  <span>Concave Depth (d<sub>aft</sub> / R<sub>base</sub>)</span>
+                  <span class="field-value" id="val-rv-aftdepth">0.38</span>
+                </label>
+                <input type="range" id="rng-rv-aftdepth" min="0.05" max="0.70" step="0.03" value="0.38" />
+              </div>
+              <div class="field-row">
+                <label class="field-label" for="rng-rv-aftpower">
+                  <span>Cavity Wall Steepness (p)</span>
+                  <span class="field-value" id="val-rv-aftpower">2.0</span>
+                </label>
+                <input type="range" id="rng-rv-aftpower" min="1.0" max="3.4" step="0.2" value="2.0" />
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
 
       <!-- 3. Conformal Aft Frustum & Conical Rocket Booster -->
       <section class="control-group">
@@ -164,9 +336,23 @@
         </div>
       </section>
 
-      <!-- 4. UHF to X-Band Radar, Waveform Bandwidth & 3D Display Controls -->
+      <!-- 4. UHF to X-Band Radar, Polarization, Waveform Bandwidth & 3D Display Controls -->
       <section class="control-group">
-        <h2>4. Radar Waveform, Bandwidth &amp; 3D Overlays</h2>
+        <h2>4. Radar, Polarization &amp; Waveform</h2>
+
+        <div class="field-row">
+          <label class="field-label" for="sel-pol">Radar Polarization</label>
+          <span id="pol-hint" class="field-hint">IEEE BSA: HH/VV/HV/VH linear &middot; PP odd-bounce &middot; OP cavity 2-bounce</span>
+          <select id="sel-pol" name="polarization" aria-describedby="pol-hint">
+            <option value="Mean" selected>Mean (Scalar PEC Baseline)</option>
+            <option value="HH">Linear HH (Horizontal Tx / Horizontal Rx)</option>
+            <option value="VV">Linear VV (Vertical Tx / Vertical Rx)</option>
+            <option value="HV">Linear HV (Cross-Pol Depolarized)</option>
+            <option value="VH">Linear VH (Cross-Pol Reciprocal)</option>
+            <option value="PP">Circular PP (Principal RL/LR &middot; Odd-Bounce)</option>
+            <option value="OP">Circular OP (Orthogonal RR/LL &middot; Cavity 2-Bounce)</option>
+          </select>
+        </div>
 
         <div class="field-row">
           <label class="field-label" for="rng-rcsel">
@@ -281,11 +467,11 @@
 
         <div class="canvas-card">
           <div class="canvas-card-header">
-            <h3>2. Cross-Sectional Morphing (Waverider Base X=L &rarr; Booster Ring &rarr; Rocket)</h3>
-            <span class="canvas-hint">Blue/Orange = Waverider &middot; Purple/Green = Frustum Morph &middot; Dashed = Shock</span>
+            <h3 id="title-panel-2">2. Cross-Sectional Morphing (Waverider Base X=L &rarr; Booster Ring &rarr; Rocket)</h3>
+            <span class="canvas-hint" id="hint-panel-2">Blue/Orange = Waverider &middot; Purple/Green = Frustum Morph &middot; Dashed = Shock</span>
           </div>
           <div class="canvas-wrap">
-            <canvas id="canvas-sections" role="img" aria-label="Cross-sectional contour plot showing waverider trailing edge, attached shock trace, and conformal transition morphing to circular booster interface"></canvas>
+            <canvas id="canvas-sections" role="img" aria-label="Cross-sectional contour or meridional blueprint plot showing vehicle body stations, shock wave envelope, and aft plane geometry"></canvas>
           </div>
         </div>
 
@@ -333,7 +519,7 @@
   </div>
 
   <footer class="app-footer">
-    <span>Validated against NACA Report 1135, Nonweiler caret theory, Gordon (1975) contour PO, Ling et al. (1989) GO-PO, and Harris (1978) spectral windows (23/23 MATLAB + 26/26 Node.js checks passing).</span>
+    <span>Validated against NACA Report 1135, Nonweiler caret theory, Gordon (1975) contour PO, Ling et al. (1989) polarimetric GO-PO, and Harris (1978) spectral windows (33/33 MATLAB + 36/36 Node.js checks passing).</span>
     <span>
       <a href="references.html">24 Web-Verified References</a> &middot;
       <a href="https://github.com/liploan/Hypersonics" target="_blank" rel="noopener noreferrer">GitHub Repository</a>

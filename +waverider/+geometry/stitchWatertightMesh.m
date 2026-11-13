@@ -21,6 +21,12 @@ function meshData = stitchWatertightMesh(surfData, cfg)
         NxWave = NxTotal;
         NxFrustEnd = NxTotal;
     end
+
+    if isfield(surfData, 'IsAxisymmetric') && surfData.IsAxisymmetric
+        meshData = stitchAxisymmetricMesh(surfData, cfg, NxWave, NxFrustEnd, NxTotal, Ny);
+        return;
+    end
+
     Nb = max(cfg.NumBaseLayers, 2);
 
     % Construct structured aft base cap grid [Nb x Ny] at the final axial station (row NxTotal)
@@ -231,4 +237,170 @@ function [faces, faceVals] = triangulateStructuredGrid(vidGrid, reverseWinding, 
     if hasVal
         faceVals = faceVals(1:nFaces);
     end
+end
+
+function meshData = stitchAxisymmetricMesh(surfData, cfg, NxWave, NxFrustEnd, NxTotal, Ny)
+%STITCHAXISYMMETRICMESH Watertight 2-manifold stitcher for axisymmetric RVs (flat or concave aft).
+    X_low = surfData.X_low;
+    Y_low = surfData.Y_low;
+    Z_low = surfData.Z_low;
+    X_up  = surfData.X_up;
+    Y_up  = surfData.Y_up;
+    Z_up  = surfData.Z_up;
+
+    hasConcaveAft = (~isfield(surfData, 'HasAftFrustum') || ~surfData.HasAftFrustum) && ...
+                    isfield(surfData, 'AftCavityDepth_m') && (surfData.AftCavityDepth_m > 0);
+    if hasConcaveAft
+        Nb = max(cfg.NumBaseLayers, 8);
+        dAft = surfData.AftCavityDepth_m;
+        pAft = surfData.AftCavityPower;
+    else
+        Nb = max(cfg.NumBaseLayers, 3);
+        dAft = 0.0;
+        pAft = 2.0;
+    end
+
+    midCol = ceil(Ny / 2);
+    xRim = X_up(NxTotal, midCol);
+    zCenterAft = 0.5 * (Z_up(NxTotal, midCol) + Z_low(NxTotal, midCol));
+
+    % Polar radial fraction u_m = 1 (outer rim, m=1) -> 0 (center pole, m=Nb)
+    uRad = linspace(1.0, 0.0, Nb).';
+    if hasConcaveAft
+        xBaseRings = xRim - dAft .* (1.0 - uRad.^pAft);
+    else
+        xBaseRings = repmat(xRim, Nb, 1);
+    end
+
+    X_base_up  = repmat(xBaseRings, 1, Ny);
+    Y_base_up  = uRad * Y_up(NxTotal, :);
+    Z_base_up  = zCenterAft + uRad * (Z_up(NxTotal, :) - zCenterAft);
+
+    X_base_low = repmat(xBaseRings, 1, Ny);
+    Y_base_low = uRad * Y_low(NxTotal, :);
+    Z_base_low = zCenterAft + uRad * (Z_low(NxTotal, :) - zCenterAft);
+
+    maxVerts = 2 * NxTotal * Ny + 2 * Nb * Ny + 4;
+    vertices = zeros(maxVerts, 3);
+    nVerts = 0;
+
+    function id = addV(x, y, z)
+        nVerts = nVerts + 1;
+        vertices(nVerts, :) = [x, y, z];
+        id = nVerts;
+    end
+
+    vid_up = zeros(NxTotal, Ny);
+    vid_low = zeros(NxTotal, Ny);
+    vid_base_up = zeros(Nb, Ny);
+    vid_base_low = zeros(Nb, Ny);
+
+    % 1. Single shared nose apex pole at row 1
+    vApex = addV(X_up(1, midCol), 0.0, 0.0);
+    vid_up(1, :) = vApex;
+    vid_low(1, :) = vApex;
+
+    % 2. Shared port (k=1) and starboard (k=Ny) lateral seam vertices along rows 2..NxTotal
+    for i = 2:NxTotal
+        vL = addV(X_up(i, 1), Y_up(i, 1), Z_up(i, 1));
+        vR = addV(X_up(i, Ny), Y_up(i, Ny), Z_up(i, Ny));
+        vid_up(i, 1)   = vL;
+        vid_low(i, 1)  = vL;
+        vid_up(i, Ny)  = vR;
+        vid_low(i, Ny) = vR;
+    end
+
+    % 3. Interior circumferential stations (k = 2 .. Ny-1) along skin rows 2..NxTotal
+    for k = 2:(Ny - 1)
+        for i = 2:NxTotal
+            vid_up(i, k) = addV(X_up(i, k), Y_up(i, k), Z_up(i, k));
+        end
+        for i = 2:NxTotal
+            vid_low(i, k) = addV(X_low(i, k), Y_low(i, k), Z_low(i, k));
+        end
+    end
+
+    % 4. Polar aft base cap: outer rim (m=1) shares skin row NxTotal; center (m=Nb) shares pole
+    vid_base_up(1, :)  = vid_up(NxTotal, :);
+    vid_base_low(1, :) = vid_low(NxTotal, :);
+
+    vBaseCenter = addV(xBaseRings(Nb), 0.0, zCenterAft);
+    vid_base_up(Nb, :)  = vBaseCenter;
+    vid_base_low(Nb, :) = vBaseCenter;
+
+    for m = 2:(Nb - 1)
+        vBL = addV(X_base_up(m, 1), Y_base_up(m, 1), Z_base_up(m, 1));
+        vBR = addV(X_base_up(m, Ny), Y_base_up(m, Ny), Z_base_up(m, Ny));
+        vid_base_up(m, 1)   = vBL;
+        vid_base_low(m, 1)  = vBL;
+        vid_base_up(m, Ny)  = vBR;
+        vid_base_low(m, Ny) = vBR;
+        for k = 2:(Ny - 1)
+            vid_base_up(m, k)  = addV(X_base_up(m, k), Y_base_up(m, k), Z_base_up(m, k));
+            vid_base_low(m, k) = addV(X_base_low(m, k), Y_base_low(m, k), Z_base_low(m, k));
+        end
+    end
+
+    vertices = vertices(1:nVerts, :);
+
+    % 5. Triangulate RV Forebody Upper & Lower (rows 1 .. NxWave)
+    useExactCp = isfield(surfData, 'UseExactDesignCp') && surfData.UseExactDesignCp;
+    if useExactCp
+        [facesUpWave, cpUpWave]   = triangulateStructuredGrid(vid_up(1:NxWave, :), false, surfData.Cp_up(1:NxWave, :));
+        [facesLowWave, cpLowWave] = triangulateStructuredGrid(vid_low(1:NxWave, :), true, surfData.Cp_low(1:NxWave, :));
+    else
+        facesUpWave  = triangulateStructuredGrid(vid_up(1:NxWave, :), false);
+        facesLowWave = triangulateStructuredGrid(vid_low(1:NxWave, :), true);
+        cpUpWave  = nan(size(facesUpWave, 1), 1);
+        cpLowWave = nan(size(facesLowWave, 1), 1);
+    end
+
+    % 6. Triangulate Optional Aft Frustum & Conical Rocket Booster
+    facesFrust = zeros(0, 3);
+    if NxFrustEnd > NxWave
+        fUpFrust  = triangulateStructuredGrid(vid_up(NxWave:NxFrustEnd, :), false);
+        fLowFrust = triangulateStructuredGrid(vid_low(NxWave:NxFrustEnd, :), true);
+        facesFrust = [fUpFrust; fLowFrust];
+    end
+
+    facesRocket = zeros(0, 3);
+    if NxTotal > NxFrustEnd
+        fUpRock  = triangulateStructuredGrid(vid_up(NxFrustEnd:NxTotal, :), false);
+        fLowRock = triangulateStructuredGrid(vid_low(NxFrustEnd:NxTotal, :), true);
+        facesRocket = [fUpRock; fLowRock];
+    end
+
+    % 7. Triangulate Polar Aft Base Cap (outward normal: +X and radially inward when concave)
+    fBaseUp  = triangulateStructuredGrid(vid_base_up, false);
+    fBaseLow = triangulateStructuredGrid(vid_base_low, true);
+    facesBase = [fBaseUp; fBaseLow];
+
+    faces = [facesUpWave; facesLowWave; facesFrust; facesRocket; facesBase];
+    facePatchID = [1 * ones(size(facesUpWave, 1), 1); ...
+                   2 * ones(size(facesLowWave, 1), 1); ...
+                   4 * ones(size(facesFrust, 1), 1); ...
+                   5 * ones(size(facesRocket, 1), 1); ...
+                   3 * ones(size(facesBase, 1), 1)];
+    faceCpDesign = [cpUpWave; ...
+                    cpLowWave; ...
+                    nan(size(facesFrust, 1), 1); ...
+                    nan(size(facesRocket, 1), 1); ...
+                    nan(size(facesBase, 1), 1)];
+
+    TR = triangulation(faces, vertices);
+
+    meshData = struct();
+    meshData.TR = TR;
+    meshData.Vertices = vertices;
+    meshData.Faces = faces;
+    meshData.FacesUpper = facesUpWave;
+    meshData.FacesLower = facesLowWave;
+    meshData.FacesFrustum = facesFrust;
+    meshData.FacesRocket = facesRocket;
+    meshData.FacesBase = facesBase;
+    meshData.FacePatchID = facePatchID;
+    meshData.FaceCpDesign = faceCpDesign;
+    meshData.X_base = [X_base_up; flipud(X_base_low(1:end-1, :))];
+    meshData.Y_base = [Y_base_up; flipud(Y_base_low(1:end-1, :))];
+    meshData.Z_base = [Z_base_up; flipud(Z_base_low(1:end-1, :))];
 end

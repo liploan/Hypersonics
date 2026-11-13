@@ -160,6 +160,28 @@ function fig = plotGeometryLines(body, varargin)
 end
 
 function [yLoop, zLoop, yShk, zShk] = extractStationLoop(surfData, xs)
+    if isfield(surfData, 'IsAxisymmetric') && surfData.IsAxisymmetric
+        midCol = ceil(size(surfData.X_up, 2) / 2);
+        xAxis = surfData.X_up(:, midCol);
+        if xs < xAxis(1) - 1e-7 || xs > xAxis(end) + 1e-7
+            yLoop = []; zLoop = []; yShk = []; zShk = [];
+            return;
+        end
+        yUpSlice  = interp1(xAxis, surfData.Y_up, xs, 'linear', 'extrap');
+        zUpSlice  = interp1(xAxis, surfData.Z_up, xs, 'linear', 'extrap');
+        yLowSlice = interp1(xAxis, surfData.Y_low, xs, 'linear', 'extrap');
+        zLowSlice = interp1(xAxis, surfData.Z_low, xs, 'linear', 'extrap');
+        xShkAxis  = surfData.X_shock(:, midCol);
+        yShkSlice = interp1(xShkAxis, surfData.Y_shock, xs, 'linear', 'extrap');
+        zShkSlice = interp1(xShkAxis, surfData.Z_shock, xs, 'linear', 'extrap');
+
+        yLoop = [yUpSlice, fliplr(yLowSlice), yUpSlice(1)];
+        zLoop = [zUpSlice, fliplr(zLowSlice), zUpSlice(1)];
+        yShk = [yShkSlice, fliplr(yShkSlice), yShkSlice(1)];
+        zShk = [-zShkSlice, fliplr(zShkSlice), -zShkSlice(1)];
+        return;
+    end
+
     xLE = surfData.X_up(1, :);
     yLE = surfData.Y_up(1, :);
     Ny = numel(yLE);

@@ -16,8 +16,8 @@ classdef WaveriderConfig
 %       FrustumLength, followed by an optional conical/cylindrical rocket stage.
 
     properties
-        % Primary Method Selection
-        Method (1,:) char {mustBeMember(Method, {'conical', 'osculating_cone', 'caret', 'cst'})} = 'osculating_cone'
+        % Primary Method Selection ('conical', 'osculating_cone', 'caret', 'cst', or 'rv')
+        Method (1,:) char {mustBeMember(Method, {'conical', 'osculating_cone', 'caret', 'cst', 'rv'})} = 'osculating_cone'
 
         % Flight Condition & Gas Properties
         Mach (1,1) double {mustBeGreaterThan(Mach, 1.05)} = 6.0
@@ -49,6 +49,16 @@ classdef WaveriderConfig
         CSTAftExponent (1,1) double {mustBeInRange(CSTAftExponent, 0.0, 1.5)} = 0.15         % Class function N2 longitudinal
         CSTUpperWeights (1,:) double {mustBeNonempty, mustBeFinite, mustBeNonnegative} = [0.12, 0.16, 0.14, 0.11] % Bernstein weights for upper ridge
         CSTLowerArchRatio (1,1) double {mustBeInRange(CSTLowerArchRatio, -0.15, 0.25)} = 0.025 % Concave compression arch on lower surface
+
+        % Axisymmetric Reentry Vehicle (RV) Parameters (used when Method == 'rv')
+        RVBodyType (1,:) char {mustBeMember(RVBodyType, {'mono_conic', 'bi_conic', 'tri_conic'})} = 'bi_conic'
+        RVNoseType (1,:) char {mustBeMember(RVNoseType, {'conical', 'spherical', 'ogive'})} = 'spherical'
+        RVNoseBluntnessRatio (1,1) double {mustBeInRange(RVNoseBluntnessRatio, 0.0, 0.80)} = 0.18 % R_nose / R_base (spherical) or ogive fullness
+        RVConeAnglesDeg (1,3) double {mustBeFinite} = [11.5, 6.0, 12.0]                            % Stage half-angles [theta_1, theta_2, theta_3] [deg]
+        RVStageFractions (1,3) double {mustBeNonnegative, mustBeFinite} = [0.42, 0.58, 0.0]        % Relative axial stage weights
+        RVAftType (1,:) char {mustBeMember(RVAftType, {'flat', 'concave'})} = 'flat'               % Aft bulkhead geometry ('flat' or 'concave')
+        RVAftCavityDepthRatio (1,1) double {mustBeInRange(RVAftCavityDepthRatio, 0.0, 0.85)} = 0.35 % Concave aft recess depth d_aft / R_base
+        RVAftCavityPower (1,1) double {mustBeInRange(RVAftCavityPower, 1.0, 4.0)} = 2.0            % Concave aft dome exponent (2=paraboloid, 1=conical)
 
         % Aft Conformal Frustum Transition & Conical Rocket Booster Mount
         EnableAftFrustum (1,1) logical = false                                               % Enable conformal transition frustum aft of X = L
@@ -92,6 +102,22 @@ classdef WaveriderConfig
 
         function validate(obj)
             %VALIDATE Check coupled physical constraints across configuration properties.
+            if strcmpi(obj.Method, 'rv')
+                if obj.RVConeAnglesDeg(1) < 1.0 || obj.RVConeAnglesDeg(1) > 55.0
+                    error('WaveriderConfig:RVConeAngle', ...
+                        'RVConeAnglesDeg(1) (%.2f deg) must lie in [1.0, 55.0] deg.', obj.RVConeAnglesDeg(1));
+                end
+                if any(obj.RVConeAnglesDeg(2:3) < -12.0 | obj.RVConeAnglesDeg(2:3) > 55.0)
+                    error('WaveriderConfig:RVConeAngle', ...
+                        'Aft conic half-angles RVConeAnglesDeg(2:3) must lie in [-12.0, 55.0] deg.');
+                end
+                nStages = 1 + strcmpi(obj.RVBodyType, 'bi_conic') + 2 * strcmpi(obj.RVBodyType, 'tri_conic');
+                if sum(obj.RVStageFractions(1:nStages)) <= 0
+                    error('WaveriderConfig:RVStageFractions', ...
+                        'Active RVStageFractions(1:%d) must have strictly positive sum.', nStages);
+                end
+                return;
+            end
             muDeg = asind(1.0 / obj.Mach);
             if obj.ShockAngleDeg <= muDeg + 0.15
                 error('WaveriderConfig:ShockBelowMachAngle', ...
@@ -164,9 +190,60 @@ classdef WaveriderConfig
                     cfg.RocketStageLength = 1.85;
                     cfg.RocketConeAngleDeg = 4.5;
 
+                case {'rv_monoconic', 'rv_mono', 'mk21'}
+                    cfg.Method = 'rv';
+                    cfg.RVBodyType = 'mono_conic';
+                    cfg.RVNoseType = 'spherical';
+                    cfg.RVNoseBluntnessRatio = 0.16;
+                    cfg.Mach = 12.0;
+                    cfg.Length = 2.60;
+                    cfg.RVConeAnglesDeg = [8.0, 8.0, 8.0];
+                    cfg.RVStageFractions = [1.0, 0.0, 0.0];
+                    cfg.RVAftType = 'flat';
+                    cfg.RVAftCavityDepthRatio = 0.0;
+
+                case {'rv_biconic', 'rv_bi', 'biconic'}
+                    cfg.Method = 'rv';
+                    cfg.RVBodyType = 'bi_conic';
+                    cfg.RVNoseType = 'spherical';
+                    cfg.RVNoseBluntnessRatio = 0.22;
+                    cfg.Mach = 14.0;
+                    cfg.Length = 3.10;
+                    cfg.RVConeAnglesDeg = [11.5, 6.0, 6.0];
+                    cfg.RVStageFractions = [0.42, 0.58, 0.0];
+                    cfg.RVAftType = 'concave';
+                    cfg.RVAftCavityDepthRatio = 0.38;
+                    cfg.RVAftCavityPower = 2.0;
+
+                case {'rv_triconic', 'rv_triconic_flare', 'triconic'}
+                    cfg.Method = 'rv';
+                    cfg.RVBodyType = 'tri_conic';
+                    cfg.RVNoseType = 'ogive';
+                    cfg.RVNoseBluntnessRatio = 0.25;
+                    cfg.Mach = 10.0;
+                    cfg.Length = 3.40;
+                    cfg.RVConeAnglesDeg = [9.5, 3.5, 13.5];
+                    cfg.RVStageFractions = [0.36, 0.34, 0.30];
+                    cfg.RVAftType = 'concave';
+                    cfg.RVAftCavityDepthRatio = 0.42;
+                    cfg.RVAftCavityPower = 2.6;
+
+                case {'rv_sharp_conic', 'rv_sharp'}
+                    cfg.Method = 'rv';
+                    cfg.RVBodyType = 'mono_conic';
+                    cfg.RVNoseType = 'conical';
+                    cfg.RVNoseBluntnessRatio = 0.0;
+                    cfg.Mach = 15.0;
+                    cfg.Length = 2.80;
+                    cfg.RVConeAnglesDeg = [7.5, 7.5, 7.5];
+                    cfg.RVStageFractions = [1.0, 0.0, 0.0];
+                    cfg.RVAftType = 'flat';
+                    cfg.RVAftCavityDepthRatio = 0.0;
+
                 otherwise
                     error('WaveriderConfig:UnknownPreset', ...
-                        'Unknown preset "%s". Valid presets: conical, osculating_cone, caret, cst, booster_mounted.', presetName);
+                        ['Unknown preset "%s". Valid presets: conical, osculating_cone, caret, cst, ', ...
+                         'booster_mounted, rv_monoconic, rv_biconic, rv_triconic_flare, rv_sharp_conic.'], presetName);
             end
         end
     end

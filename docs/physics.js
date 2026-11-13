@@ -317,12 +317,36 @@
     const numFrustumStations = Math.max(4, Math.round(Number(raw.numFrustumStations ?? raw.NumFrustumStations ?? 12)));
     const numRocketStations = Math.max(4, Math.round(Number(raw.numRocketStations ?? raw.NumRocketStations ?? 9)));
 
+    // Conventional Reentry Vehicle (RV) parameters (used when method === 'rv')
+    const rvBodyType = String(raw.rvBodyType ?? raw.RVBodyType ?? "bi_conic").toLowerCase().trim();
+    const rvNoseType = String(raw.rvNoseType ?? raw.RVNoseType ?? "spherical").toLowerCase().trim();
+    const rvBluntness = Number(raw.rvBluntness ?? raw.RVNoseBluntnessRatio ?? 0.18);
+    const rvConeAngles = Array.isArray(raw.rvConeAngles ?? raw.RVConeAnglesDeg)
+      ? (raw.rvConeAngles ?? raw.RVConeAnglesDeg).map(Number)
+      : [
+          Number(raw.rvCone1 ?? 11.0),
+          Number(raw.rvCone2 ?? 6.5),
+          Number(raw.rvCone3 ?? 10.0)
+        ];
+    const rvStageFractions = Array.isArray(raw.rvStageFractions ?? raw.RVStageFractions)
+      ? (raw.rvStageFractions ?? raw.RVStageFractions).map(Number)
+      : [
+          Number(raw.rvFrac1 ?? 0.42),
+          Number(raw.rvFrac2 ?? 0.33),
+          Number(raw.rvFrac3 ?? Math.max(0.05, 1.0 - Number(raw.rvFrac1 ?? 0.42) - Number(raw.rvFrac2 ?? 0.33)))
+        ];
+    const rvAftType = String(raw.rvAftType ?? raw.RVAftType ?? "flat").toLowerCase().trim();
+    const rvAftDepth = Number(raw.rvAftDepth ?? raw.RVAftCavityDepthRatio ?? 0.28);
+    const rvAftPower = Number(raw.rvAftPower ?? raw.RVAftCavityPower ?? 2.0);
+
     return {
       method, mach, beta, gamma, length, span, power, anhedral,
       canopy: upperSurfaceType === "freestream" ? 0.0 : canopy,
       upperSurfaceType, canopySpanPower,
       flatShockFraction, shockCurvaturePower, vertexOffsetRatio,
       cstUpperWeights, cstLowerArchRatio, cstNoseExponent, cstAftExponent,
+      rvBodyType, rvNoseType, rvBluntness, rvConeAngles, rvStageFractions,
+      rvAftType, rvAftDepth, rvAftPower,
       frustum, flength, bradius, blend, frustumZOffset,
       rocket, rocketLength, rcone,
       numStreamwise, numHalfSpan, numBaseLayers, numFrustumStations, numRocketStations
@@ -333,13 +357,36 @@
     if (!(cfg.mach > 1.2 && Number.isFinite(cfg.mach))) {
       throw new RangeError(`Mach (${cfg.mach}) must exceed 1.2.`);
     }
+    if (!(cfg.length > 0 && Number.isFinite(cfg.length))) {
+      throw new RangeError("Length must be strictly positive.");
+    }
+    if (cfg.method === "rv") {
+      if (!["mono_conic", "bi_conic", "tri_conic"].includes(cfg.rvBodyType)) {
+        throw new RangeError(`Unsupported rvBodyType "${cfg.rvBodyType}".`);
+      }
+      if (!["conical", "spherical", "ogive"].includes(cfg.rvNoseType)) {
+        throw new RangeError(`Unsupported rvNoseType "${cfg.rvNoseType}".`);
+      }
+      if (!["flat", "concave"].includes(cfg.rvAftType)) {
+        throw new RangeError(`Unsupported rvAftType "${cfg.rvAftType}".`);
+      }
+      if (!(cfg.rvConeAngles[0] >= 1.0 && cfg.rvConeAngles[0] <= 55.0)) {
+        throw new RangeError("Stage 1 RV cone half-angle must lie in [1, 55] deg.");
+      }
+      for (let s = 1; s < cfg.rvConeAngles.length; s++) {
+        if (!(cfg.rvConeAngles[s] >= -15.0 && cfg.rvConeAngles[s] <= 55.0)) {
+          throw new RangeError("Upper RV conic stage half-angles must lie in [-15, 55] deg.");
+        }
+      }
+      return true;
+    }
     const muDeg = Math.asin(1.0 / cfg.mach) * RAD2DEG;
     if (!(cfg.beta > muDeg + 0.15 && cfg.beta < 65.0)) {
       throw new RangeError(
         `ShockAngleDeg (${cfg.beta.toFixed(2)} deg) must exceed Mach angle (${muDeg.toFixed(2)} deg) by at least 0.15 deg.`
       );
     }
-    if (!(cfg.length > 0 && cfg.span > 0)) {
+    if (!(cfg.span > 0)) {
       throw new RangeError("Length and HalfSpan must be strictly positive.");
     }
     if (!(cfg.power >= 0.25 && cfg.power <= 2.5)) {
@@ -791,7 +838,312 @@
       return { X_up, Y_up, Z_up, X_low, Y_low, Z_low, X_shk, Y_shk, Z_shk, Cp_low, flowSolution, planformClampCount };
     }
 
+    if (cfg.method === "rv") {
+      return generateReentryVehicleSurfaces(cfg);
+    }
+
     throw new Error(`Unsupported waverider method "${cfg.method}".`);
+  }
+
+  function solveInverseTaylorMaccoll(M, targetConeDeg, gamma = 1.4) {
+    const muDeg = Math.asin(1.0 / M) * RAD2DEG;
+    let bLo = Math.max(muDeg + 0.12, targetConeDeg + 0.05);
+    let bHi = Math.min(64.0, Math.max(targetConeDeg * 2.4 + muDeg + 4.0, bLo + 8.0));
+    if (bLo >= bHi) return { ok: false, betaDeg: NaN, tmSol: null };
+    let sLo, sHi;
+    try {
+      sLo = solveTaylorMaccoll(M, bLo, gamma);
+      sHi = solveTaylorMaccoll(M, bHi, gamma);
+    } catch (_) {
+      return { ok: false, betaDeg: NaN, tmSol: null };
+    }
+    let fLo = sLo.thetaConeDeg - targetConeDeg;
+    let fHi = sHi.thetaConeDeg - targetConeDeg;
+    if (fLo > 0 || fHi < 0) return { ok: false, betaDeg: NaN, tmSol: null };
+
+    for (let it = 1; it <= 18; it++) {
+      let bMid;
+      if (it % 3 === 0) {
+        bMid = 0.5 * (bLo + bHi);
+      } else {
+        const w = Math.max(0.15, Math.min(0.85, -fLo / (fHi - fLo)));
+        bMid = bLo + w * (bHi - bLo);
+      }
+      const sMid = solveTaylorMaccoll(M, bMid, gamma);
+      const fMid = sMid.thetaConeDeg - targetConeDeg;
+      if (Math.abs(fMid) < 1e-6 || bHi - bLo < 1e-6) {
+        return { ok: true, betaDeg: bMid, tmSol: sMid };
+      }
+      if (fMid < 0) {
+        bLo = bMid; fLo = fMid;
+      } else {
+        bHi = bMid; fHi = fMid;
+      }
+    }
+    const betaDeg = 0.5 * (bLo + bHi);
+    return { ok: true, betaDeg, tmSol: solveTaylorMaccoll(M, betaDeg, gamma) };
+  }
+
+  function interp1Linear(xArr, yArr, xQuery) {
+    const n = xArr.length;
+    if (n === 0) return 0.0;
+    if (n === 1 || xQuery <= xArr[0]) return yArr[0];
+    if (xQuery >= xArr[n - 1]) return yArr[n - 1];
+    let lo = 0, hi = n - 1;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (xArr[mid] <= xQuery) lo = mid;
+      else hi = mid;
+    }
+    const dx = xArr[hi] - xArr[lo];
+    if (Math.abs(dx) < 1e-15) return yArr[lo];
+    return yArr[lo] + ((xQuery - xArr[lo]) / dx) * (yArr[hi] - yArr[lo]);
+  }
+
+  function generateReentryVehicleSurfaces(cfg) {
+    const L = cfg.length;
+    const M = cfg.mach;
+    const g = cfg.gamma;
+    const bodyType = cfg.rvBodyType;
+    let noseType = cfg.rvNoseType;
+    const aftType = cfg.rvAftType;
+
+    const nStages = bodyType === "mono_conic" ? 1 : (bodyType === "bi_conic" ? 2 : 3);
+    const coneAnglesDeg = cfg.rvConeAngles.slice(0, nStages);
+    const rawWeights = cfg.rvStageFractions.slice(0, nStages).map((w) => Math.max(w, 0.0));
+    const sumW = rawWeights.reduce((acc, v) => acc + v, 0.0);
+    const stageWeights = sumW > 0 ? rawWeights.map((w) => w / sumW) : Array(nStages).fill(1.0 / nStages);
+
+    const th1Deg = Math.max(1.0, Math.min(52.0, coneAnglesDeg[0]));
+    const th1Rad = th1Deg * DEG2RAD;
+    const tanStages = coneAnglesDeg.map((a) => Math.tan(a * DEG2RAD));
+    let meanTanPostNose = 0.0;
+    for (let s = 0; s < nStages; s++) meanTanPostNose += stageWeights[s] * tanStages[s];
+    meanTanPostNose = Math.max(meanTanPostNose, Math.tan(2.0 * DEG2RAD));
+
+    let etaNose = Math.max(0.0, Math.min(0.80, cfg.rvBluntness));
+    if (noseType === "conical" || etaNose < 1e-4) {
+      noseType = "conical";
+      etaNose = 0.0;
+    }
+
+    let RN = 0.0;
+    let rhoOgive = 0.0;
+    let th0OgiveRad = th1Rad;
+    let x_t = 0.0;
+    let r_t = 0.0;
+
+    if (noseType === "spherical") {
+      const denom = 1.0 - etaNose * (Math.cos(th1Rad) - (1.0 - Math.sin(th1Rad)) * meanTanPostNose);
+      const R_base_nom = (L * meanTanPostNose) / Math.max(denom, 0.15);
+      const RN_max = (0.50 * L) / Math.max(1.0 - Math.sin(th1Rad), 0.05);
+      RN = Math.min(etaNose * R_base_nom, RN_max);
+      x_t = RN * (1.0 - Math.sin(th1Rad));
+      r_t = RN * Math.cos(th1Rad);
+    } else if (noseType === "ogive") {
+      const lamNose = Math.min(0.56, Math.max(0.14, 0.14 + 0.50 * etaNose));
+      x_t = lamNose * L;
+      const dThetaDeg = 4.0 + 18.0 * etaNose;
+      const thSecDeg = Math.min(th1Deg + dThetaDeg, 62.0);
+      r_t = x_t * Math.tan(thSecDeg * DEG2RAD);
+      const denomOg = 2.0 * (r_t * Math.cos(th1Rad) - x_t * Math.sin(th1Rad));
+      rhoOgive = (x_t * x_t + r_t * r_t) / Math.max(denomOg, 1e-9);
+      const sinTh0 = Math.min(Math.sin(th1Rad) + x_t / rhoOgive, 0.995);
+      th0OgiveRad = Math.asin(sinTh0);
+    }
+
+    const NxTarget = Math.max(cfg.numStreamwise, 24);
+    const xVec = [];
+    const rVec = [];
+    const stageIDPerRow = [];
+
+    if (noseType === "conical") {
+      xVec.push(0.0);
+      rVec.push(0.0);
+      stageIDPerRow.push(0);
+    } else {
+      const nNosePts = Math.max(10, Math.round(0.32 * NxTarget));
+      if (noseType === "spherical") {
+        const alphaMax = 0.5 * Math.PI - th1Rad;
+        for (let i = 0; i < nNosePts; i++) {
+          const al = (alphaMax * i) / (nNosePts - 1);
+          xVec.push(RN * (1.0 - Math.cos(al)));
+          rVec.push(RN * Math.sin(al));
+          stageIDPerRow.push(0);
+        }
+      } else {
+        for (let i = 0; i < nNosePts; i++) {
+          const psi = th0OgiveRad + ((th1Rad - th0OgiveRad) * i) / (nNosePts - 1);
+          xVec.push(rhoOgive * (Math.sin(th0OgiveRad) - Math.sin(psi)));
+          rVec.push(rhoOgive * (Math.cos(psi) - Math.cos(th0OgiveRad)));
+          stageIDPerRow.push(0);
+        }
+      }
+      xVec[0] = 0.0; rVec[0] = 0.0;
+      xVec[xVec.length - 1] = x_t; rVec[rVec.length - 1] = r_t;
+    }
+
+    const L_rem = Math.max(L - x_t, 1e-4);
+    const nRemPts = Math.max(NxTarget - xVec.length + 1, 3 * nStages + 1);
+    const stageBreaksX = new Array(nStages + 1).fill(0.0);
+    const stageBreaksR = new Array(nStages + 1).fill(0.0);
+    stageBreaksX[0] = x_t;
+    stageBreaksR[0] = r_t;
+
+    const rMinFloor = Math.max(0.025 * L, 0.20 * Math.max(r_t, 0.02 * L));
+    for (let s = 0; s < nStages; s++) {
+      const Ls = stageWeights[s] * L_rem;
+      const xStart = stageBreaksX[s];
+      const xEnd = s === nStages - 1 ? L : xStart + Ls;
+      const rStart = stageBreaksR[s];
+      const rEnd = Math.max(rStart + (xEnd - xStart) * tanStages[s], rMinFloor);
+      const nSeg = Math.max(3, Math.round(stageWeights[s] * (nRemPts - 1)));
+
+      for (let j = 1; j <= nSeg; j++) {
+        const tau = j / nSeg;
+        xVec.push(xStart + tau * (xEnd - xStart));
+        rVec.push(rStart + tau * (rEnd - rStart));
+        stageIDPerRow.push(s + 1);
+      }
+      stageBreaksX[s + 1] = xEnd;
+      stageBreaksR[s + 1] = rEnd;
+    }
+
+    const Nx = xVec.length;
+    const Ny = 2 * cfg.numHalfSpan - 1;
+    const R_base = rVec[Nx - 1];
+
+    // Safe concave aft cavity depth clamping (positive wall thickness from center to rim)
+    let dAft_m = 0.0;
+    const aftPower = cfg.rvAftPower;
+    if (aftType === "concave" && cfg.rvAftDepth > 0) {
+      let dSafe = Math.min(cfg.rvAftDepth * R_base, 0.55 * L);
+      for (let iter = 0; iter < 14; iter++) {
+        let ok = L - dSafe > 0.04 * L;
+        for (let m = 0; m < 40 && ok; m++) {
+          const u = (0.98 * m) / 39.0;
+          const xC = L - dSafe * (1.0 - Math.pow(u, aftPower));
+          const rSkin = xC >= xVec[0] ? interp1Linear(xVec, rVec, xC) : 0.0;
+          const wallMargin = 0.04 * R_base * (1.0 - u);
+          if (u * R_base > rSkin - wallMargin + 1e-12) {
+            ok = false;
+          }
+        }
+        if (ok) break;
+        dSafe *= 0.82;
+      }
+      dAft_m = Math.max(dSafe, 0.0);
+    }
+
+    // Exact inverse Taylor-Maccoll on sharp conical noses or bow-shock envelope
+    const CpMax = (2.0 / (g * M * M)) * (
+      Math.pow(((g + 1.0) * (g + 1.0) * M * M) / (4.0 * g * M * M - 2.0 * (g - 1.0)), g / (g - 1.0)) *
+      ((1.0 - g + 2.0 * g * M * M) / (g + 1.0)) - 1.0
+    );
+    const muRad = Math.asin(1.0 / M);
+    let isSharpMonoTM = false;
+    let flowSolution = { M1: M, gamma: g, CpMax };
+    let betaAsymRad = Math.max(muRad + 2.0 * DEG2RAD, Math.min(1.18 * th1Rad + 0.65 * muRad, 64.0 * DEG2RAD));
+
+    if (noseType === "conical") {
+      const invTM = solveInverseTaylorMaccoll(M, th1Deg, g);
+      if (invTM.ok && invTM.tmSol) {
+        betaAsymRad = invTM.betaDeg * DEG2RAD;
+        flowSolution = invTM.tmSol;
+        isSharpMonoTM = nStages === 1;
+      }
+    }
+
+    const sinG = new Float64Array(Ny);
+    const cosG = new Float64Array(Ny);
+    for (let k = 0; k < Ny; k++) {
+      const eta = -1.0 + (2.0 * k) / (Ny - 1);
+      const gam = 0.5 * Math.PI * eta;
+      sinG[k] = Math.sin(gam);
+      cosG[k] = Math.cos(gam);
+    }
+    sinG[cfg.numHalfSpan - 1] = 0.0;
+    cosG[0] = 0.0;
+    cosG[Ny - 1] = 0.0;
+
+    const standoff = RN > 0 ? 0.143 * RN * Math.exp(3.24 / (M * M)) : 0.0;
+    const rShkVec = new Array(Nx);
+
+    const X_up = Array.from({ length: Nx }, () => new Array(Ny));
+    const Y_up = Array.from({ length: Nx }, () => new Array(Ny));
+    const Z_up = Array.from({ length: Nx }, () => new Array(Ny));
+    const X_low = Array.from({ length: Nx }, () => new Array(Ny));
+    const Y_low = Array.from({ length: Nx }, () => new Array(Ny));
+    const Z_low = Array.from({ length: Nx }, () => new Array(Ny));
+    const X_shk = Array.from({ length: Nx }, () => new Array(Ny));
+    const Y_shk = Array.from({ length: Nx }, () => new Array(Ny));
+    const Z_shk = Array.from({ length: Nx }, () => new Array(Ny));
+    const Cp_low = Array.from({ length: Nx }, () => new Array(Ny));
+    const Cp_up = Array.from({ length: Nx }, () => new Array(Ny));
+
+    const pmExp = (2.0 * g) / (g - 1.0);
+    for (let i = 0; i < Nx; i++) {
+      const xi = xVec[i];
+      const ri = rVec[i];
+      const rShk = Math.max((xi + standoff) * Math.tan(betaAsymRad), 1.06 * ri + (xi > 0 ? 0.015 * R_base : 0.0));
+      rShkVec[i] = rShk;
+      const xShk = xi - standoff * Math.exp((-2.5 * xi) / Math.max(L, 1e-6));
+
+      let cpRow = 0.0;
+      if (isSharpMonoTM) {
+        cpRow = flowSolution.CpCone;
+      } else {
+        const i0 = Math.max(0, i - 1);
+        const i1 = Math.min(Nx - 1, i + 1);
+        const drdx = (rVec[i1] - rVec[i0]) / Math.max(xVec[i1] - xVec[i0], 1e-9);
+        const sinLoc = drdx / Math.sqrt(1.0 + drdx * drdx);
+        if (noseType === "conical" && stageIDPerRow[i] <= 1 && Number.isFinite(flowSolution.CpCone)) {
+          cpRow = flowSolution.CpCone;
+        } else if (sinLoc >= 0) {
+          cpRow = CpMax * sinLoc * sinLoc;
+        } else {
+          const sinLee = -sinLoc;
+          cpRow = (2.0 / (g * M * M)) * (Math.pow(Math.max(1.0 - 0.5 * (g - 1.0) * M * sinLee, 0.0), pmExp) - 1.0);
+        }
+      }
+
+      for (let k = 0; k < Ny; k++) {
+        const yv = ri * sinG[k];
+        const zv = ri * cosG[k];
+        X_up[i][k] = xi; Y_up[i][k] = yv; Z_up[i][k] = zv;
+        X_low[i][k] = xi; Y_low[i][k] = yv; Z_low[i][k] = k === 0 || k === Ny - 1 ? 0.0 : -zv;
+        X_shk[i][k] = xShk; Y_shk[i][k] = rShk * sinG[k]; Z_shk[i][k] = -rShk * cosG[k];
+        Cp_low[i][k] = cpRow;
+        Cp_up[i][k] = cpRow;
+      }
+    }
+
+    return {
+      X_up, Y_up, Z_up, X_low, Y_low, Z_low, X_shk, Y_shk, Z_shk,
+      Cp_low, Cp_up,
+      flowSolution,
+      planformClampCount: 0,
+      isAxisymmetric: true,
+      useExactDesignCp: isSharpMonoTM,
+      rvMeta: {
+        bodyType,
+        noseType,
+        aftType,
+        aftCavityDepth_m: dAft_m,
+        aftCavityPower: aftPower,
+        rNose_m: RN,
+        rBase_m: R_base,
+        xTangency_m: x_t,
+        rTangency_m: r_t,
+        xProfile: xVec,
+        rProfile: rVec,
+        rShockProfile: rShkVec,
+        stageIDPerRow,
+        stageBreaksX,
+        stageBreaksR,
+        coneAnglesDeg
+      }
+    };
   }
 
   // --------------------------------------------------------------------------
@@ -930,7 +1282,6 @@
     }
 
     // Stitch 2-Manifold Watertight Triangulation (mirror-symmetric diagonals)
-    const Nb = cfg.numBaseLayers;
     const vertices = [];
     function addVertex(x, y, z) {
       vertices.push([x, y, z]);
@@ -939,51 +1290,9 @@
 
     const vid_up = Array.from({ length: NxTotal }, () => new Int32Array(Ny));
     const vid_low = Array.from({ length: NxTotal }, () => new Int32Array(Ny));
-    const vid_base = Array.from({ length: Nb }, () => new Int32Array(Ny));
-
-    const vLeftTip = addVertex(X_up[0][0], Y_up[0][0], Z_up[0][0]);
-    const vRightTip = addVertex(X_up[0][Ny - 1], Y_up[0][Ny - 1], Z_up[0][Ny - 1]);
-
-    for (let i = 0; i < NxWave; i++) {
-      vid_up[i][0] = vLeftTip; vid_low[i][0] = vLeftTip;
-      vid_up[i][Ny - 1] = vRightTip; vid_low[i][Ny - 1] = vRightTip;
-    }
-    for (let i = NxWave; i < NxTotal; i++) {
-      const vL = addVertex(X_up[i][0], Y_up[i][0], Z_up[i][0]);
-      const vR = addVertex(X_up[i][Ny - 1], Y_up[i][Ny - 1], Z_up[i][Ny - 1]);
-      vid_up[i][0] = vL; vid_low[i][0] = vL;
-      vid_up[i][Ny - 1] = vR; vid_low[i][Ny - 1] = vR;
-    }
-    for (let m = 0; m < Nb; m++) {
-      vid_base[m][0] = vid_up[NxTotal - 1][0];
-      vid_base[m][Ny - 1] = vid_up[NxTotal - 1][Ny - 1];
-    }
-
-    for (let k = 1; k < Ny - 1; k++) {
-      const vLE = addVertex(X_up[0][k], Y_up[0][k], Z_up[0][k]);
-      vid_up[0][k] = vLE; vid_low[0][k] = vLE;
-
-      for (let i = 1; i < NxTotal; i++) {
-        vid_up[i][k] = addVertex(X_up[i][k], Y_up[i][k], Z_up[i][k]);
-      }
-      for (let i = 1; i < NxTotal; i++) {
-        vid_low[i][k] = addVertex(X_low[i][k], Y_low[i][k], Z_low[i][k]);
-      }
-
-      vid_base[0][k] = vid_up[NxTotal - 1][k];
-      for (let m = 1; m < Nb - 1; m++) {
-        const tau = m / (Nb - 1);
-        const xb = X_up[NxTotal - 1][k] * (1.0 - tau) + X_low[NxTotal - 1][k] * tau;
-        const yb = Y_up[NxTotal - 1][k] * (1.0 - tau) + Y_low[NxTotal - 1][k] * tau;
-        const zb = Z_up[NxTotal - 1][k] * (1.0 - tau) + Z_low[NxTotal - 1][k] * tau;
-        vid_base[m][k] = addVertex(xb, yb, zb);
-      }
-      vid_base[Nb - 1][k] = vid_low[NxTotal - 1][k];
-    }
-
     const faces = [];
     const facePatch = [];    // 1=Upper, 2=Lower, 3=Base, 4=Frustum, 5=Rocket
-    const faceCpDesign = []; // Exact nodal average on patch 2, NaN elsewhere
+    const faceCpDesign = []; // Exact nodal average on calibrated patches, NaN elsewhere
     const halfCols = Math.floor((Ny - 1) / 2);
 
     function triangulateSubGrid(grid, rStart, rEnd, reverse, patchCode, cpGrid = null) {
@@ -1023,17 +1332,146 @@
       }
     }
 
-    triangulateSubGrid(vid_up, 0, NxWave, false, 1, null);
-    triangulateSubGrid(vid_low, 0, NxWave, true, 2, Cp_low);
-    if (NxFrustEnd > NxWave) {
-      triangulateSubGrid(vid_up, NxWave - 1, NxFrustEnd, false, 4, null);
-      triangulateSubGrid(vid_low, NxWave - 1, NxFrustEnd, true, 4, null);
+    if (surf.isAxisymmetric) {
+      const hasAftExt = cfg.frustum && cfg.flength > 0;
+      const dAft = !hasAftExt && surf.rvMeta ? surf.rvMeta.aftCavityDepth_m : 0.0;
+      const pAft = surf.rvMeta ? surf.rvMeta.aftCavityPower : 2.0;
+      const Nb = dAft > 0 ? Math.max(cfg.numBaseLayers, 8) : Math.max(cfg.numBaseLayers, 3);
+      const midCol = Math.floor(Ny / 2);
+
+      // 1. Single shared nose apex pole at row 0
+      const vApex = addVertex(X_up[0][midCol], 0.0, 0.0);
+      for (let k = 0; k < Ny; k++) {
+        vid_up[0][k] = vApex;
+        vid_low[0][k] = vApex;
+      }
+
+      // 2. Shared port/starboard lateral seam along rows 1..NxTotal-1
+      for (let i = 1; i < NxTotal; i++) {
+        const vL = addVertex(X_up[i][0], Y_up[i][0], Z_up[i][0]);
+        const vR = addVertex(X_up[i][Ny - 1], Y_up[i][Ny - 1], Z_up[i][Ny - 1]);
+        vid_up[i][0] = vL; vid_low[i][0] = vL;
+        vid_up[i][Ny - 1] = vR; vid_low[i][Ny - 1] = vR;
+      }
+
+      // 3. Interior circumferential stations along skin rows 1..NxTotal-1
+      for (let k = 1; k < Ny - 1; k++) {
+        for (let i = 1; i < NxTotal; i++) {
+          vid_up[i][k] = addVertex(X_up[i][k], Y_up[i][k], Z_up[i][k]);
+        }
+        for (let i = 1; i < NxTotal; i++) {
+          vid_low[i][k] = addVertex(X_low[i][k], Y_low[i][k], Z_low[i][k]);
+        }
+      }
+
+      // 4. Polar aft base cap (flat bulkhead or recessed concave dome)
+      const vid_base_up = Array.from({ length: Nb }, () => new Int32Array(Ny));
+      const vid_base_low = Array.from({ length: Nb }, () => new Int32Array(Ny));
+      const xRim = X_up[NxTotal - 1][midCol];
+      const zCenterAft = 0.5 * (Z_up[NxTotal - 1][midCol] + Z_low[NxTotal - 1][midCol]);
+
+      for (let k = 0; k < Ny; k++) {
+        vid_base_up[0][k] = vid_up[NxTotal - 1][k];
+        vid_base_low[0][k] = vid_low[NxTotal - 1][k];
+      }
+      const xBaseCenter = dAft > 0 ? xRim - dAft : xRim;
+      const vBaseCenter = addVertex(xBaseCenter, 0.0, zCenterAft);
+      for (let k = 0; k < Ny; k++) {
+        vid_base_up[Nb - 1][k] = vBaseCenter;
+        vid_base_low[Nb - 1][k] = vBaseCenter;
+      }
+
+      for (let m = 1; m < Nb - 1; m++) {
+        const u = 1.0 - m / (Nb - 1);
+        const xRing = dAft > 0 ? xRim - dAft * (1.0 - Math.pow(u, pAft)) : xRim;
+        const vBL = addVertex(xRing, u * Y_up[NxTotal - 1][0], zCenterAft + u * (Z_up[NxTotal - 1][0] - zCenterAft));
+        const vBR = addVertex(xRing, u * Y_up[NxTotal - 1][Ny - 1], zCenterAft + u * (Z_up[NxTotal - 1][Ny - 1] - zCenterAft));
+        vid_base_up[m][0] = vBL; vid_base_low[m][0] = vBL;
+        vid_base_up[m][Ny - 1] = vBR; vid_base_low[m][Ny - 1] = vBR;
+        for (let k = 1; k < Ny - 1; k++) {
+          vid_base_up[m][k] = addVertex(
+            xRing,
+            u * Y_up[NxTotal - 1][k],
+            zCenterAft + u * (Z_up[NxTotal - 1][k] - zCenterAft)
+          );
+          vid_base_low[m][k] = addVertex(
+            xRing,
+            u * Y_low[NxTotal - 1][k],
+            zCenterAft + u * (Z_low[NxTotal - 1][k] - zCenterAft)
+          );
+        }
+      }
+
+      const cpUpGrid = surf.useExactDesignCp ? surf.Cp_up : null;
+      const cpLowGrid = surf.useExactDesignCp ? Cp_low : null;
+      triangulateSubGrid(vid_up, 0, NxWave, false, 1, cpUpGrid);
+      triangulateSubGrid(vid_low, 0, NxWave, true, 2, cpLowGrid);
+      if (NxFrustEnd > NxWave) {
+        triangulateSubGrid(vid_up, NxWave - 1, NxFrustEnd, false, 4, null);
+        triangulateSubGrid(vid_low, NxWave - 1, NxFrustEnd, true, 4, null);
+      }
+      if (NxTotal > NxFrustEnd) {
+        triangulateSubGrid(vid_up, NxFrustEnd - 1, NxTotal, false, 5, null);
+        triangulateSubGrid(vid_low, NxFrustEnd - 1, NxTotal, true, 5, null);
+      }
+      triangulateSubGrid(vid_base_up, 0, Nb, false, 3, null);
+      triangulateSubGrid(vid_base_low, 0, Nb, true, 3, null);
+    } else {
+      const Nb = cfg.numBaseLayers;
+      const vid_base = Array.from({ length: Nb }, () => new Int32Array(Ny));
+
+      const vLeftTip = addVertex(X_up[0][0], Y_up[0][0], Z_up[0][0]);
+      const vRightTip = addVertex(X_up[0][Ny - 1], Y_up[0][Ny - 1], Z_up[0][Ny - 1]);
+
+      for (let i = 0; i < NxWave; i++) {
+        vid_up[i][0] = vLeftTip; vid_low[i][0] = vLeftTip;
+        vid_up[i][Ny - 1] = vRightTip; vid_low[i][Ny - 1] = vRightTip;
+      }
+      for (let i = NxWave; i < NxTotal; i++) {
+        const vL = addVertex(X_up[i][0], Y_up[i][0], Z_up[i][0]);
+        const vR = addVertex(X_up[i][Ny - 1], Y_up[i][Ny - 1], Z_up[i][Ny - 1]);
+        vid_up[i][0] = vL; vid_low[i][0] = vL;
+        vid_up[i][Ny - 1] = vR; vid_low[i][Ny - 1] = vR;
+      }
+      for (let m = 0; m < Nb; m++) {
+        vid_base[m][0] = vid_up[NxTotal - 1][0];
+        vid_base[m][Ny - 1] = vid_up[NxTotal - 1][Ny - 1];
+      }
+
+      for (let k = 1; k < Ny - 1; k++) {
+        const vLE = addVertex(X_up[0][k], Y_up[0][k], Z_up[0][k]);
+        vid_up[0][k] = vLE; vid_low[0][k] = vLE;
+
+        for (let i = 1; i < NxTotal; i++) {
+          vid_up[i][k] = addVertex(X_up[i][k], Y_up[i][k], Z_up[i][k]);
+        }
+        for (let i = 1; i < NxTotal; i++) {
+          vid_low[i][k] = addVertex(X_low[i][k], Y_low[i][k], Z_low[i][k]);
+        }
+
+        vid_base[0][k] = vid_up[NxTotal - 1][k];
+        for (let m = 1; m < Nb - 1; m++) {
+          const tau = m / (Nb - 1);
+          const xb = X_up[NxTotal - 1][k] * (1.0 - tau) + X_low[NxTotal - 1][k] * tau;
+          const yb = Y_up[NxTotal - 1][k] * (1.0 - tau) + Y_low[NxTotal - 1][k] * tau;
+          const zb = Z_up[NxTotal - 1][k] * (1.0 - tau) + Z_low[NxTotal - 1][k] * tau;
+          vid_base[m][k] = addVertex(xb, yb, zb);
+        }
+        vid_base[Nb - 1][k] = vid_low[NxTotal - 1][k];
+      }
+
+      triangulateSubGrid(vid_up, 0, NxWave, false, 1, null);
+      triangulateSubGrid(vid_low, 0, NxWave, true, 2, Cp_low);
+      if (NxFrustEnd > NxWave) {
+        triangulateSubGrid(vid_up, NxWave - 1, NxFrustEnd, false, 4, null);
+        triangulateSubGrid(vid_low, NxWave - 1, NxFrustEnd, true, 4, null);
+      }
+      if (NxTotal > NxFrustEnd) {
+        triangulateSubGrid(vid_up, NxFrustEnd - 1, NxTotal, false, 5, null);
+        triangulateSubGrid(vid_low, NxFrustEnd - 1, NxTotal, true, 5, null);
+      }
+      triangulateSubGrid(vid_base, 0, Nb, false, 3, null);
     }
-    if (NxTotal > NxFrustEnd) {
-      triangulateSubGrid(vid_up, NxFrustEnd - 1, NxTotal, false, 5, null);
-      triangulateSubGrid(vid_low, NxFrustEnd - 1, NxTotal, true, 5, null);
-    }
-    triangulateSubGrid(vid_base, 0, Nb, false, 3, null);
 
     // Precompute typed-array triangle geometry + full 2-manifold topology audit
     const nF = faces.length;
@@ -1080,7 +1518,7 @@
     let enclosedVol = 0.0;
     let momX = 0.0, momY = 0.0, momZ = 0.0;
     let planformArea = 0.0;
-    let upperArea = 0.0, lowerArea = 0.0, frustumArea = 0.0, rocketArea = 0.0, baseArea = 0.0;
+    let upperArea = 0.0, lowerArea = 0.0, frustumArea = 0.0, rocketArea = 0.0, baseArea = 0.0, projBaseArea = 0.0;
     let degenerateFaces = 0;
 
     for (let f = 0; f < nF; f++) {
@@ -1145,7 +1583,7 @@
       const pCode = facePatch[f];
       if (pCode === 1) { upperArea += trueArea; planformArea += Math.abs(cz); }
       else if (pCode === 2) lowerArea += trueArea;
-      else if (pCode === 3) baseArea += trueArea;
+      else if (pCode === 3) { baseArea += trueArea; projBaseArea += Math.max(cx, 0.0); }
       else if (pCode === 4) frustumArea += trueArea;
       else if (pCode === 5) rocketArea += trueArea;
     }
@@ -1200,18 +1638,22 @@
       !hasSurfaceFold &&
       enclosedVol > 0;
 
-    // Build Concave Lower-Surface Super-Cells for GO-PO Double-Bounce
-    const concaveData = buildConcaveSuperCells(X_low, Y_low, Z_low, NxWave, Ny);
+    // Build Concave Super-Cells for GO-PO Double-Bounce (Waverider Underside or RV Aft Cavity / Flared Cones)
+    const concaveData = surf.isAxisymmetric
+      ? buildAxisymmetricConcaveSuperCells(surf.rvMeta, cfg.frustum && cfg.flength > 0)
+      : buildConcaveSuperCells(X_low, Y_low, Z_low, NxWave, Ny);
 
     // Precompute Aero Cache & Design-Point (alpha = 0) Metrics
     const aeroCache = buildAeroCache({
       cfg, faces, facePatch, faceCpDesign, crossVecs, faceNormals, faceCenters,
-      volumeCentroid, planformArea, wettedArea, baseArea
+      volumeCentroid, planformArea, wettedArea, baseArea, projBaseArea
     });
     const aero0 = evaluateAeroFromCache(aeroCache, 0.0);
 
     return {
       cfg,
+      isAxisymmetric: Boolean(surf.isAxisymmetric),
+      rvMeta: surf.rvMeta || null,
       X_up, Y_up, Z_up,
       X_low, Y_low, Z_low,
       X_shk, Y_shk, Z_shk,
@@ -1225,7 +1667,7 @@
       boundaryEdges, nonManifoldEdges, conflictingHalfEdges, degenerateFaces,
       hasSurfaceFold, isWatertight,
       numEdges, euler,
-      enclosedVol, volumeCentroid, planformArea, wettedArea, baseArea, etaV,
+      enclosedVol, volumeCentroid, planformArea, wettedArea, baseArea, projBaseArea, etaV,
       aeroCache,
       CL: aero0.CL,
       CD: aero0.CD_wave,
@@ -1248,7 +1690,7 @@
   // --------------------------------------------------------------------------
 
   function buildAeroCache(m) {
-    const { cfg, faces, facePatch, faceCpDesign, crossVecs, faceNormals, faceCenters, volumeCentroid, planformArea, wettedArea, baseArea } = m;
+    const { cfg, faces, facePatch, faceCpDesign, crossVecs, faceNormals, faceCenters, volumeCentroid, planformArea, wettedArea, baseArea, projBaseArea } = m;
     const M = cfg.mach;
     const g = cfg.gamma;
     const CpMax = (2.0 / (g * M * M)) * (
@@ -1259,11 +1701,13 @@
     const nF = faces.length;
     const kCal = new Float64Array(nF);
     const validWindward0 = new Uint8Array(nF);
+    const hasCalCp = new Uint8Array(nF);
 
     for (let f = 0; f < nF; f++) {
-      if (facePatch[f] === 2) {
+      if ((facePatch[f] === 1 || facePatch[f] === 2) && Number.isFinite(faceCpDesign[f])) {
+        hasCalCp[f] = 1;
         const sinImp0 = Math.max(-faceNormals[f][0], 0.0);
-        if (sinImp0 > 1e-4 && Number.isFinite(faceCpDesign[f])) {
+        if (sinImp0 > 1e-4) {
           validWindward0[f] = 1;
           kCal[f] = faceCpDesign[f] / (CpMax * sinImp0 * sinImp0);
         } else {
@@ -1293,12 +1737,13 @@
     const Sref = Math.max(planformArea, 1e-12);
     const CD_friction_est = Cf_inf * (wettedArea / Sref);
     const Cp_base = -1.0 / (g * M * M);
-    const CD_base_est = -Cp_base * (baseArea / Sref);
+    const baseEff = Number.isFinite(projBaseArea) ? projBaseArea : baseArea;
+    const CD_base_est = -Cp_base * (baseEff / Sref);
 
     return {
       M, g, CpMax, Sref, Lref: cfg.length,
       facePatch, faceCpDesign, crossVecs, faceNormals, faceCenters, volumeCentroid,
-      kCal, validWindward0, CD_friction_est, CD_base_est
+      hasCalCp, kCal, validWindward0, CD_friction_est, CD_base_est
     };
   }
 
@@ -1306,7 +1751,7 @@
     const aRad = alphaDeg * DEG2RAD;
     const ux = Math.cos(aRad), uz = Math.sin(aRad);
     const lx = -Math.sin(aRad), lz = Math.cos(aRad);
-    const { M, g, CpMax, Sref, Lref, facePatch, faceCpDesign, crossVecs, faceNormals, faceCenters, volumeCentroid, kCal, validWindward0 } = cache;
+    const { M, g, CpMax, Sref, Lref, facePatch, faceCpDesign, crossVecs, faceNormals, faceCenters, volumeCentroid, hasCalCp, kCal, validWindward0 } = cache;
     const pmFactor = 2.0 / (g * M * M);
     const pmExp = (2.0 * g) / (g - 1.0);
     const atDesign = Math.abs(alphaDeg) < 1e-13;
@@ -1324,7 +1769,7 @@
       const cpPM = pmFactor * (Math.pow(Math.max(1.0 - 0.5 * (g - 1.0) * M * sinLee, 0.0), pmExp) - 1.0);
 
       let cp = 0.0;
-      if (pCode === 2) {
+      if (hasCalCp[f]) {
         if (atDesign) {
           cp = validWindward0[f] ? faceCpDesign[f] : (sinLee > 0 ? cpPM : faceCpDesign[f]);
         } else {
@@ -1736,6 +2181,208 @@
   }
 
   /**
+   * Build GO-PO super-cells for axisymmetric Reentry Vehicles (RVs):
+   *   1) Recessed concave aft cavity (`aftCavityDepth_m > 0 && !hasAftFrustum`)
+   *   2) Flared multi-conic forebody stage corners (`coneAnglesDeg[s+1] > coneAnglesDeg[s]`)
+   */
+  function buildAxisymmetricConcaveSuperCells(rvMeta, hasAftFrustum) {
+    const cellCenter = [];
+    const cellNormal = [];
+    const cellArea = [];
+    const cellVerts = [];
+    const cellRadius = [];
+    const cellGroup = []; // 1 = concave aft cavity, 2 = flared exterior skin
+    const cellEr = [];
+
+    const hasConcaveAft = Boolean(rvMeta && !hasAftFrustum && rvMeta.aftCavityDepth_m > 1e-5);
+    let hasFlaredCones = false;
+    if (rvMeta && Array.isArray(rvMeta.coneAnglesDeg) && rvMeta.coneAnglesDeg.length >= 2) {
+      for (let s = 0; s < rvMeta.coneAnglesDeg.length - 1; s++) {
+        if (rvMeta.coneAnglesDeg[s + 1] - rvMeta.coneAnglesDeg[s] > 0.25) {
+          hasFlaredCones = true;
+          break;
+        }
+      }
+    }
+
+    const nPhi = 16; // Multiple of 4 -> exact Y <-> -Y and Z <-> -Z symmetry
+    const phiEdges = new Float64Array(nPhi + 1);
+    for (let c = 0; c <= nPhi; c++) phiEdges[c] = -Math.PI + (2.0 * Math.PI * c) / nPhi;
+
+    function pushQuadCell(p1, p2, p3, p4, grp, phMid) {
+      const a1x = p2[0] - p1[0], a1y = p2[1] - p1[1], a1z = p2[2] - p1[2];
+      const b1x = p3[0] - p1[0], b1y = p3[1] - p1[1], b1z = p3[2] - p1[2];
+      const c1x = p4[0] - p1[0], c1y = p4[1] - p1[1], c1z = p4[2] - p1[2];
+
+      const cr1x = a1y * b1z - a1z * b1y;
+      const cr1y = a1z * b1x - a1x * b1z;
+      const cr1z = a1x * b1y - a1y * b1x;
+
+      const cr2x = b1y * c1z - b1z * c1y;
+      const cr2y = b1z * c1x - b1x * c1z;
+      const cr2z = b1x * c1y - b1y * c1x;
+
+      const nvx = 0.5 * (cr1x + cr2x);
+      const nvy = 0.5 * (cr1y + cr2y);
+      const nvz = 0.5 * (cr1z + cr2z);
+      const areaVal = Math.hypot(nvx, nvy, nvz);
+      if (areaVal <= 1e-7) return;
+
+      const ctr = [
+        0.25 * (p1[0] + p2[0] + p3[0] + p4[0]),
+        0.25 * (p1[1] + p2[1] + p3[1] + p4[1]),
+        0.25 * (p1[2] + p2[2] + p3[2] + p4[2])
+      ];
+      const nHat = [nvx / areaVal, nvy / areaVal, nvz / areaVal];
+      const rawQuad = [p1, p2, p3, p4];
+      let maxRad = 0.0;
+      const quad = rawQuad.map((q) => {
+        const dotN = (q[0] - ctr[0]) * nHat[0] + (q[1] - ctr[1]) * nHat[1] + (q[2] - ctr[2]) * nHat[2];
+        const qp = [q[0] - dotN * nHat[0], q[1] - dotN * nHat[1], q[2] - dotN * nHat[2]];
+        const rad = Math.hypot(qp[0] - ctr[0], qp[1] - ctr[1], qp[2] - ctr[2]);
+        if (rad > maxRad) maxRad = rad;
+        return qp;
+      });
+      cellCenter.push(ctr);
+      cellNormal.push(nHat);
+      cellArea.push(areaVal);
+      cellVerts.push(quad);
+      cellRadius.push(maxRad);
+      cellGroup.push(grp);
+      cellEr.push([0.0, Math.sin(phMid), Math.cos(phMid)]);
+    }
+
+    if (hasConcaveAft) {
+      const R_b = rvMeta.rBase_m;
+      const L_aft = rvMeta.xProfile[rvMeta.xProfile.length - 1];
+      const dAft = rvMeta.aftCavityDepth_m;
+      const pAft = rvMeta.aftCavityPower;
+      const nRad = 6;
+      for (let r = 0; r < nRad; r++) {
+        const u1 = 1.0 - ((1.0 - 0.06) * r) / nRad;
+        const u2 = 1.0 - ((1.0 - 0.06) * (r + 1)) / nRad;
+        const x1 = L_aft - dAft * (1.0 - Math.pow(u1, pAft));
+        const x2 = L_aft - dAft * (1.0 - Math.pow(u2, pAft));
+        for (let c = 0; c < nPhi; c++) {
+          const ph1 = phiEdges[c], ph2 = phiEdges[c + 1];
+          const p1 = [x1, R_b * u1 * Math.sin(ph1), R_b * u1 * Math.cos(ph1)];
+          const p2 = [x2, R_b * u2 * Math.sin(ph1), R_b * u2 * Math.cos(ph1)];
+          const p3 = [x2, R_b * u2 * Math.sin(ph2), R_b * u2 * Math.cos(ph2)];
+          const p4 = [x1, R_b * u1 * Math.sin(ph2), R_b * u1 * Math.cos(ph2)];
+          pushQuadCell(p1, p2, p3, p4, 1, 0.5 * (ph1 + ph2));
+        }
+      }
+    }
+
+    if (hasFlaredCones) {
+      const xProf = rvMeta.xProfile;
+      const rProf = rvMeta.rProfile;
+      let startIdx = 1;
+      while (startIdx < rProf.length - 1 && rProf[startIdx] <= 1e-5) startIdx++;
+      const idxSet = new Set();
+      for (let k = 0; k < 12; k++) {
+        idxSet.add(Math.round(startIdx + ((rProf.length - 1 - startIdx) * k) / 11));
+      }
+      if (Array.isArray(rvMeta.stageBreaksX)) {
+        for (const xb of rvMeta.stageBreaksX) {
+          let bestI = startIdx, bestD = Infinity;
+          for (let i = startIdx; i < xProf.length; i++) {
+            const d = Math.abs(xProf[i] - xb);
+            if (d < bestD) { bestD = d; bestI = i; }
+          }
+          if (rProf[bestI] > 1e-5) idxSet.add(bestI);
+        }
+      }
+      const iIdx = Array.from(idxSet).sort((a, b) => a - b);
+      for (let r = 0; r < iIdx.length - 1; r++) {
+        const x1 = xProf[iIdx[r]], rad1 = rProf[iIdx[r]];
+        const x2 = xProf[iIdx[r + 1]], rad2 = rProf[iIdx[r + 1]];
+        for (let c = 0; c < nPhi; c++) {
+          const ph1 = phiEdges[c], ph2 = phiEdges[c + 1];
+          const p1 = [x1, rad1 * Math.sin(ph1), rad1 * Math.cos(ph1)];
+          const p2 = [x2, rad2 * Math.sin(ph1), rad2 * Math.cos(ph1)];
+          const p3 = [x2, rad2 * Math.sin(ph2), rad2 * Math.cos(ph2)];
+          const p4 = [x1, rad1 * Math.sin(ph2), rad1 * Math.cos(ph2)];
+          pushQuadCell(p1, p2, p3, p4, 2, 0.5 * (ph1 + ph2));
+        }
+      }
+    }
+
+    const nCells = cellCenter.length;
+    const pIdx = [];
+    const qIdx = [];
+    const rayPairs = [];
+
+    for (let p = 0; p < nCells - 1; p++) {
+      const rP = cellCenter[p], nP = cellNormal[p], gP = cellGroup[p];
+      for (let q = p + 1; q < nCells; q++) {
+        if (cellGroup[q] !== gP) continue;
+        if (gP === 2) {
+          const dotEr = cellEr[p][1] * cellEr[q][1] + cellEr[p][2] * cellEr[q][2];
+          if (dotEr <= 0.25) continue;
+        }
+        const rQ = cellCenter[q], nQ = cellNormal[q];
+        const dx = rQ[0] - rP[0], dy = rQ[1] - rP[1], dz = rQ[2] - rP[2];
+        const dist = Math.hypot(dx, dy, dz);
+        if (dist < 1e-4) continue;
+        const dHat = [dx / dist, dy / dist, dz / dist];
+        const cP = nP[0] * dHat[0] + nP[1] * dHat[1] + nP[2] * dHat[2];
+        const cQ = -(nQ[0] * dHat[0] + nQ[1] * dHat[1] + nQ[2] * dHat[2]);
+        if (cP > 0.015 && cQ > 0.015) {
+          pIdx.push(p);
+          qIdx.push(q);
+          rayPairs.push({
+            rP, rQ, nP, nQ, dist, dHat, cP, cQ,
+            effA: Math.sqrt(cellArea[p] * cellArea[q] * cP * cQ)
+          });
+        }
+      }
+    }
+
+    rayPairs.sort((a, b) => b.effA - a.effA);
+
+    const nUndir = pIdx.length;
+    const nDir = 2 * nUndir;
+    const dirP = new Int32Array(nDir);
+    const dirQ = new Int32Array(nDir);
+    const pRx = new Float64Array(nDir), pRy = new Float64Array(nDir), pRz = new Float64Array(nDir);
+    const pNx = new Float64Array(nDir), pNy = new Float64Array(nDir), pNz = new Float64Array(nDir);
+    const qRx = new Float64Array(nDir), qRy = new Float64Array(nDir), qRz = new Float64Array(nDir);
+    const qNx = new Float64Array(nDir), qNy = new Float64Array(nDir), qNz = new Float64Array(nDir);
+    const pRad = new Float64Array(nDir), qRad = new Float64Array(nDir);
+
+    for (let m = 0; m < nUndir; m++) {
+      dirP[m] = pIdx[m]; dirQ[m] = qIdx[m];
+      dirP[m + nUndir] = qIdx[m]; dirQ[m + nUndir] = pIdx[m];
+    }
+    for (let m = 0; m < nDir; m++) {
+      const P = dirP[m], Q = dirQ[m];
+      pRx[m] = cellCenter[P][0]; pRy[m] = cellCenter[P][1]; pRz[m] = cellCenter[P][2];
+      pNx[m] = cellNormal[P][0]; pNy[m] = cellNormal[P][1]; pNz[m] = cellNormal[P][2];
+      qRx[m] = cellCenter[Q][0]; qRy[m] = cellCenter[Q][1]; qRz[m] = cellCenter[Q][2];
+      qNx[m] = cellNormal[Q][0]; qNy[m] = cellNormal[Q][1]; qNz[m] = cellNormal[Q][2];
+      pRad[m] = cellRadius[P]; qRad[m] = cellRadius[Q];
+    }
+
+    return {
+      numPairs: nUndir,
+      nCells,
+      cellCenter,
+      cellNormal,
+      cellArea,
+      cellVerts,
+      cellRadius,
+      pIdx,
+      qIdx,
+      dirP, dirQ,
+      pRx, pRy, pRz, pNx, pNy, pNz,
+      qRx, qRy, qRz, qNx, qNy, qNz,
+      pRad, qRad,
+      rayPairs: rayPairs.slice(0, 60)
+    };
+  }
+
+  /**
    * Sutherland-Hodgman clipping of a planar polygon by a convex polygon (CCW about nHat).
    */
   function clipConvexPolygon(subject, clip, nHat) {
@@ -1858,13 +2505,73 @@
   }
 
   /**
-   * Collect clipped GO-PO overlap polygons for a look direction u = [ux, uy, uz] (frequency-independent!).
+   * Normalize polarization channel identifier (IEEE Backscatter Alignment convention).
+   * Supported: Mean, HH, VV, HV, VH, PP (aliases RL, LR), OP (alias RR), LL.
    */
-  function collectDoubleBouncePatches(cp, ux, uy, uz) {
+  function normalizePolarization(pol) {
+    const s = String(pol == null ? "Mean" : pol).trim().toUpperCase();
+    switch (s) {
+      case "":
+      case "MEAN":
+      case "SCALAR":
+      case "UNPOL":
+        return "Mean";
+      case "HH":
+      case "VV":
+      case "HV":
+      case "VH":
+      case "LL":
+        return s;
+      case "PP":
+      case "RL":
+      case "LR":
+        return "PP";
+      case "OP":
+      case "RR":
+        return "OP";
+      default:
+        throw new RangeError(
+          `Unsupported polarization "${pol}". Expected Mean, HH, VV, HV, VH, PP (RL/LR), OP (RR), or LL.`
+        );
+    }
+  }
+
+  /**
+   * Singularity-free IEEE BSA polarization basis (e_H, e_V) for look vector u = [ux, uy, uz]
+   * pointing FROM target TO radar (propagation k_i = -u, so e_H x e_V = k_i).
+   */
+  function computePolarizationBasis(ux, uy, uz, azRadOpt) {
+    let eHx, eHy;
+    if (typeof azRadOpt === "number" && Number.isFinite(azRadOpt)) {
+      eHx = Math.sin(azRadOpt);
+      eHy = Math.cos(azRadOpt);
+    } else {
+      const rhoXY = Math.hypot(ux, uy);
+      if (rhoXY > 1e-15) {
+        eHx = uy / rhoXY;
+        eHy = -ux / rhoXY;
+      } else {
+        eHx = 0.0;
+        eHy = 1.0;
+      }
+    }
+    const eHz = 0.0;
+    const eVx = eHy * uz;
+    const eVy = -eHx * uz;
+    const eVz = eHx * uy - eHy * ux;
+    return [eHx, eHy, eHz, eVx, eVy, eVz];
+  }
+
+  /**
+   * Collect clipped GO-PO overlap polygons and 3D vector dyadic polarization weights
+   * for a look direction u = [ux, uy, uz] (frequency-independent!).
+   */
+  function collectDoubleBouncePatches(cp, ux, uy, uz, azRadOpt) {
     if (!cp || cp.numPairs === 0) return [];
     const { cellNormal, cellVerts, dirP, dirQ, pRx, pRy, pRz, pNx, pNy, pNz, qRx, qRy, qRz, qNx, qNy, qNz, pRad, qRad } = cp;
     const nDir = dirP.length;
     const kix = -ux, kiy = -uy, kiz = -uz;
+    const [eHx, eHy, eHz, eVx, eVy, eVz] = computePolarizationBasis(ux, uy, uz, azRadOpt);
     const patches = [];
 
     for (let m = 0; m < nDir; m++) {
@@ -1958,21 +2665,44 @@
       const uwt2 = Math.max(dk2 - nQdk * nQdk, 0.0);
       const Lhalf = 0.5 * (-dkx * rOx - dky * rOy - dkz * rOz + cPath);
 
+      // Full 3D vector PEC reflection off P and PO radiation off Q (IEEE BSA)
+      const nPx = pNx[m], nPy = pNy[m], nPz = pNz[m];
+      const npEh = 2.0 * (nPx * eHx + nPy * eHy + nPz * eHz);
+      const erHx = npEh * nPx - eHx, erHy = npEh * nPy - eHy, erHz = npEh * nPz - eHz;
+      const npEv = 2.0 * (nPx * eVx + nPy * eVy + nPz * eVz);
+      const erVx = npEv * nPx - eVx, erVy = npEv * nPy - eVy, erVz = npEv * nPz - eVz;
+
+      const eH_kr = eHx * krx + eHy * kry + eHz * krz;
+      const eV_kr = eVx * krx + eVy * kry + eVz * krz;
+      const nq_erH = nQx * erHx + nQy * erHy + nQz * erHz;
+      const nq_erV = nQx * erVx + nQy * erVy + nQz * erVz;
+
+      const wHH = 2.0 * (nq_erH * eH_kr - nQkr * (eHx * erHx + eHy * erHy + eHz * erHz));
+      const wVV = 2.0 * (nq_erV * eV_kr - nQkr * (eVx * erVx + eVy * erVy + eVz * erVz));
+      const wHV = 2.0 * (nq_erV * eH_kr - nQkr * (eHx * erVx + eHy * erVy + eHz * erVz));
+      const wVH = 2.0 * (nq_erH * eV_kr - nQkr * (eVx * erHx + eVy * erHy + eVz * erHz));
+      const wCross = 0.5 * (wHV + wVH);
+
       patches.push({
         polyFlat, nV, nQ: cellNormal[dirQ[m]], area: sumA, rOx, rOy, rOz, Lmax,
-        dkx, dky, dkz, nQdk, uwt2, cPath, Lhalf
+        dkx, dky, dkz, nQdk, uwt2, cPath, Lhalf,
+        wHH, wVV, wCross
       });
     }
     return patches;
   }
 
   /**
-   * Evaluate exact Gordon contour integral over pre-clipped GO-PO patches at wavenumber k0.
+   * Evaluate exact Gordon contour integral over pre-clipped GO-PO patches at wavenumber k0
+   * for scalar Mean and all 4 Sinclair channels simultaneously.
    */
   function evaluatePatchesAtK(patches, k0, wantContrib = false) {
     const Gamma = -1.0;
     const prefScale = k0 / (2.0 * Math.sqrt(Math.PI));
     let totRe = 0.0, totIm = 0.0;
+    let hhRe = 0.0, hhIm = 0.0;
+    let vvRe = 0.0, vvIm = 0.0;
+    let hvRe = 0.0, hvIm = 0.0;
     const contrib = wantContrib ? [] : null;
 
     for (let p = 0; p < patches.length; p++) {
@@ -2009,38 +2739,148 @@
         IIm = -sumRe / wt2;
       }
 
-      const weight = prefScale * pt.nQdk * Gamma;
       const cosC = Math.cos(-k0 * pt.cPath);
       const sinC = Math.sin(-k0 * pt.cPath);
       const pRe = IRe * cosC - IIm * sinC;
       const pIm = IRe * sinC + IIm * cosC;
-      const ampRe = -weight * pIm;
-      const ampIm = weight * pRe;
+      const baseRe = -prefScale * pIm;
+      const baseIm = prefScale * pRe;
 
-      totRe += ampRe;
-      totIm += ampIm;
+      const wMean = pt.nQdk * Gamma;
+      const ampRe = baseRe * wMean;
+      const ampIm = baseIm * wMean;
+      const aHHRe = baseRe * pt.wHH, aHHIm = baseIm * pt.wHH;
+      const aVVRe = baseRe * pt.wVV, aVVIm = baseIm * pt.wVV;
+      const aHVRe = baseRe * pt.wCross, aHVIm = baseIm * pt.wCross;
+
+      totRe += ampRe; totIm += ampIm;
+      hhRe += aHHRe;  hhIm += aHHIm;
+      vvRe += aVVRe;  vvIm += aVVIm;
+      hvRe += aHVRe;  hvIm += aHVIm;
       if (wantContrib) {
-        contrib.push([ampRe, ampIm, pt.Lhalf]);
+        contrib.push([ampRe, ampIm, pt.Lhalf, aHHRe, aHHIm, aVVRe, aVVIm, aHVRe, aHVIm]);
       }
     }
-    return { re: totRe, im: totIm, contrib };
+    return {
+      re: totRe, im: totIm,
+      hhRe, hhIm, vvRe, vvIm, hvRe, hvIm, vhRe: hvRe, vhIm: hvIm,
+      contrib
+    };
   }
+
+  const _ZERO_MB = Object.freeze({
+    re: 0.0, im: 0.0,
+    hhRe: 0.0, hhIm: 0.0,
+    vvRe: 0.0, vvIm: 0.0,
+    hvRe: 0.0, hvIm: 0.0,
+    vhRe: 0.0, vhIm: 0.0,
+    contrib: []
+  });
 
   /**
    * Exact GO-PO (SBR-style) monostatic two-bounce evaluator for one look direction u = [ux, uy, uz].
    * Matches +waverider/+rcs/doubleBounceGOPO.m.
    */
-  function doubleBounceGOPO(cp, ux, uy, uz, k0, wantContrib = false) {
-    const patches = collectDoubleBouncePatches(cp, ux, uy, uz);
-    if (patches.length === 0) return { re: 0.0, im: 0.0, contrib: [] };
+  function doubleBounceGOPO(cp, ux, uy, uz, k0, wantContrib = false, azRadOpt) {
+    const patches = collectDoubleBouncePatches(cp, ux, uy, uz, azRadOpt);
+    if (patches.length === 0) {
+      return {
+        re: 0.0, im: 0.0,
+        hhRe: 0.0, hhIm: 0.0, vvRe: 0.0, vvIm: 0.0, hvRe: 0.0, hvIm: 0.0, vhRe: 0.0, vhIm: 0.0,
+        contrib: wantContrib ? [] : null
+      };
+    }
     return evaluatePatchesAtK(patches, k0, wantContrib);
   }
 
   /**
-   * Evaluate coherent monostatic RCS across multiple frequencies at one (azDeg, elDeg)
-   * while sharing vertex projections and Sutherland-Hodgman polygon clipping across bands!
+   * Assemble single-bounce PO + GO-PO double-bounce into the requested polarization channel
+   * plus the complete linear/circular polarimetric dictionary.
    */
-  function evaluateRCSMultiFreq(model, freqGHzArray, azDeg, elDeg, includeMB = true) {
+  function assemblePolarimetricPoint(rePO, imPO, mb, polTag, noiseFloor = 1e-5) {
+    const sMeanRe = rePO + mb.re,   sMeanIm = imPO + mb.im;
+    const sHHRe   = rePO + mb.hhRe, sHHIm   = imPO + mb.hhIm;
+    const sVVRe   = rePO + mb.vvRe, sVVIm   = imPO + mb.vvIm;
+    const sHVRe   = mb.hvRe,        sHVIm   = mb.hvIm;
+    const sPPRe   = 0.5 * (sHHRe + sVVRe), sPPIm = 0.5 * (sHHIm + sVVIm);
+    const sOPRe   = 0.5 * (sHHRe - sVVRe) + sHVIm, sOPIm = 0.5 * (sHHIm - sVVIm) - sHVRe;
+    const sLLRe   = 0.5 * (sHHRe - sVVRe) - sHVIm, sLLIm = 0.5 * (sHHIm - sVVIm) + sHVRe;
+
+    let reSingle = 0.0, imSingle = 0.0, reMB = 0.0, imMB = 0.0;
+    switch (polTag) {
+      case "Mean":
+        reSingle = rePO; imSingle = imPO; reMB = mb.re; imMB = mb.im;
+        break;
+      case "HH":
+        reSingle = rePO; imSingle = imPO; reMB = mb.hhRe; imMB = mb.hhIm;
+        break;
+      case "VV":
+        reSingle = rePO; imSingle = imPO; reMB = mb.vvRe; imMB = mb.vvIm;
+        break;
+      case "HV":
+      case "VH":
+        reSingle = 0.0; imSingle = 0.0; reMB = mb.hvRe; imMB = mb.hvIm;
+        break;
+      case "PP":
+        reSingle = rePO; imSingle = imPO;
+        reMB = 0.5 * (mb.hhRe + mb.vvRe); imMB = 0.5 * (mb.hhIm + mb.vvIm);
+        break;
+      case "OP":
+        reSingle = 0.0; imSingle = 0.0;
+        reMB = 0.5 * (mb.hhRe - mb.vvRe) + mb.hvIm;
+        imMB = 0.5 * (mb.hhIm - mb.vvIm) - mb.hvRe;
+        break;
+      case "LL":
+        reSingle = 0.0; imSingle = 0.0;
+        reMB = 0.5 * (mb.hhRe - mb.vvRe) - mb.hvIm;
+        imMB = 0.5 * (mb.hhIm - mb.vvIm) + mb.hvRe;
+        break;
+    }
+
+    const reTotal = reSingle + reMB;
+    const imTotal = imSingle + imMB;
+    const sigSingle = reSingle * reSingle + imSingle * imSingle + noiseFloor;
+    const sigDouble = reMB * reMB + imMB * imMB + noiseFloor;
+    const sigTotal = reTotal * reTotal + imTotal * imTotal + noiseFloor;
+
+    const m2HH = sHHRe * sHHRe + sHHIm * sHHIm;
+    const m2VV = sVVRe * sVVRe + sVVIm * sVVIm;
+    const m2HV = sHVRe * sHVRe + sHVIm * sHVIm;
+    const m2PP = sPPRe * sPPRe + sPPIm * sPPIm;
+    const m2OP = sOPRe * sOPRe + sOPIm * sOPIm;
+    const m2LL = sLLRe * sLLRe + sLLIm * sLLIm;
+    const m2Mean = sMeanRe * sMeanRe + sMeanIm * sMeanIm;
+    const span_m2 = m2HH + m2VV + 2.0 * m2HV;
+
+    return {
+      polarization: polTag,
+      reSingle, imSingle, reMB, imMB, reTotal, imTotal,
+      single_m2: sigSingle,
+      double_m2: sigDouble,
+      total_m2: sigTotal,
+      single_dBsm: 10.0 * Math.log10(sigSingle),
+      double_dBsm: 10.0 * Math.log10(sigDouble),
+      total_dBsm: 10.0 * Math.log10(sigTotal),
+      channels: {
+        Mean: { re: sMeanRe, im: sMeanIm, m2: m2Mean, dBsm: 10.0 * Math.log10(m2Mean + noiseFloor) },
+        HH:   { re: sHHRe,   im: sHHIm,   m2: m2HH,   dBsm: 10.0 * Math.log10(m2HH + noiseFloor) },
+        VV:   { re: sVVRe,   im: sVVIm,   m2: m2VV,   dBsm: 10.0 * Math.log10(m2VV + noiseFloor) },
+        HV:   { re: sHVRe,   im: sHVIm,   m2: m2HV,   dBsm: 10.0 * Math.log10(m2HV + noiseFloor) },
+        VH:   { re: sHVRe,   im: sHVIm,   m2: m2HV,   dBsm: 10.0 * Math.log10(m2HV + noiseFloor) },
+        PP:   { re: sPPRe,   im: sPPIm,   m2: m2PP,   dBsm: 10.0 * Math.log10(m2PP + noiseFloor) },
+        OP:   { re: sOPRe,   im: sOPIm,   m2: m2OP,   dBsm: 10.0 * Math.log10(m2OP + noiseFloor) },
+        LL:   { re: sLLRe,   im: sLLIm,   m2: m2LL,   dBsm: 10.0 * Math.log10(m2LL + noiseFloor) },
+        span_m2
+      }
+    };
+  }
+
+  /**
+   * Evaluate coherent monostatic RCS across multiple frequencies at one (azDeg, elDeg)
+   * while sharing vertex projections, polygon clipping, and polarimetric weights across bands!
+   */
+  function evaluateRCSMultiFreq(model, freqGHzArray, azDeg, elDeg, includeMB = true, pol = "Mean") {
+    const polTag = normalizePolarization(pol);
     const az = azDeg * DEG2RAD;
     const el = elDeg * DEG2RAD;
     const ux = -Math.cos(el) * Math.cos(az);
@@ -2050,7 +2890,7 @@
     const g = model.poGeom;
     const { nLit, nLV } = prepareLitPOGeometry(g, ux, uy, uz);
     const patches = (includeMB && model.concaveData && model.concaveData.numPairs > 0)
-      ? collectDoubleBouncePatches(model.concaveData, ux, uy, uz)
+      ? collectDoubleBouncePatches(model.concaveData, ux, uy, uz, az)
       : [];
 
     const noiseFloor = 1e-5;
@@ -2059,35 +2899,18 @@
       const k0 = (2.0 * Math.PI) / lam;
 
       evaluateLitPOAtK(g, nLit, nLV, k0);
-      const reSingle = _poSumOut[0];
-      const imSingle = _poSumOut[1];
-
-      let reMB = 0.0, imMB = 0.0;
-      if (patches.length > 0) {
-        const mb = evaluatePatchesAtK(patches, k0, false);
-        reMB = mb.re;
-        imMB = mb.im;
-      }
-
-      const sigSingle = reSingle * reSingle + imSingle * imSingle + noiseFloor;
-      const sigDouble = reMB * reMB + imMB * imMB + noiseFloor;
-      const sigTotal = (reSingle + reMB) * (reSingle + reMB) + (imSingle + imMB) * (imSingle + imMB) + noiseFloor;
-      return {
-        reSingle, imSingle, reMB, imMB,
-        single_m2: sigSingle,
-        double_m2: sigDouble,
-        total_m2: sigTotal,
-        single_dBsm: 10.0 * Math.log10(sigSingle),
-        double_dBsm: 10.0 * Math.log10(sigDouble),
-        total_dBsm: 10.0 * Math.log10(sigTotal)
-      };
+      const rePO = _poSumOut[0];
+      const imPO = _poSumOut[1];
+      const mb = patches.length > 0 ? evaluatePatchesAtK(patches, k0, false) : _ZERO_MB;
+      return assemblePolarimetricPoint(rePO, imPO, mb, polTag, noiseFloor);
     });
   }
 
   /**
-   * Evaluate coherent monostatic RCS (PO + optional GO-PO double-bounce) at (freqGHz, azDeg, elDeg).
+   * Evaluate coherent monostatic RCS (PO + optional GO-PO double-bounce) at (freqGHz, azDeg, elDeg, pol).
    */
-  function evaluateRCSDirection(model, freqGHz, azDeg, elDeg, includeMB = true) {
+  function evaluateRCSDirection(model, freqGHz, azDeg, elDeg, includeMB = true, pol = "Mean") {
+    const polTag = normalizePolarization(pol);
     const lam = (C0 * 1e-9) / freqGHz;
     const k0 = (2.0 * Math.PI) / lam;
     const az = azDeg * DEG2RAD;
@@ -2099,30 +2922,14 @@
     const g = model.poGeom;
     const { nLit, nLV } = prepareLitPOGeometry(g, ux, uy, uz);
     evaluateLitPOAtK(g, nLit, nLV, k0);
-    const reSingle = _poSumOut[0];
-    const imSingle = _poSumOut[1];
+    const rePO = _poSumOut[0];
+    const imPO = _poSumOut[1];
 
-    let reMB = 0.0, imMB = 0.0;
-    if (includeMB && model.concaveData && model.concaveData.numPairs > 0) {
-      const mb = doubleBounceGOPO(model.concaveData, ux, uy, uz, k0, false);
-      reMB = mb.re;
-      imMB = mb.im;
-    }
+    const mb = (includeMB && model.concaveData && model.concaveData.numPairs > 0)
+      ? doubleBounceGOPO(model.concaveData, ux, uy, uz, k0, false, az)
+      : _ZERO_MB;
 
-    const noiseFloor = 1e-5; // -50 dBsm floor matching MATLAB computeRCS.m
-    const sigSingle = reSingle * reSingle + imSingle * imSingle + noiseFloor;
-    const sigDouble = reMB * reMB + imMB * imMB + noiseFloor;
-    const sigTotal = (reSingle + reMB) * (reSingle + reMB) + (imSingle + imMB) * (imSingle + imMB) + noiseFloor;
-
-    return {
-      reSingle, imSingle, reMB, imMB,
-      single_m2: sigSingle,
-      double_m2: sigDouble,
-      total_m2: sigTotal,
-      single_dBsm: 10.0 * Math.log10(sigSingle),
-      double_dBsm: 10.0 * Math.log10(sigDouble),
-      total_dBsm: 10.0 * Math.log10(sigTotal)
-    };
+    return assemblePolarimetricPoint(rePO, imPO, mb, polTag, 1e-5);
   }
 
   // --------------------------------------------------------------------------
@@ -2137,6 +2944,9 @@
     if (!(bwMHz > 0)) {
       throw new RangeError("Bandwidth must be strictly positive.");
     }
+    const polTag = normalizePolarization(opts.polarization || "Mean");
+    const hasSingleBouncePol =
+      polTag === "Mean" || polTag === "HH" || polTag === "VV" || polTag === "PP";
     const maxAllowedBW = 1000.0 * freqGHz;
     if (opts.strictBandwidth && bwMHz > maxAllowedBW) {
       throw new RangeError(
@@ -2224,16 +3034,47 @@
       accDoubleRe.fill(0.0);
       accDoubleIm.fill(0.0);
 
-      // 1. Single-bounce PO scattering centers (exact vertex-phasor Gordon amplitudes at f_c)
-      const { nLit, nLV } = prepareLitPOGeometry(g, ux, uy, uz);
-      evaluateLitPOAtK(g, nLit, nLV, k0, accSingleRe, accSingleIm, ux, xRef, rLim, 1.0 / dBin, nR);
+      // 1. Single-bounce PO scattering centers (zero for HV, VH, OP, and LL channels)
+      if (hasSingleBouncePol) {
+        const { nLit, nLV } = prepareLitPOGeometry(g, ux, uy, uz);
+        evaluateLitPOAtK(g, nLit, nLV, k0, accSingleRe, accSingleIm, ux, xRef, rLim, 1.0 / dBin, nR);
+      }
 
       // 2. GO-PO concave double-bounce scattering centers with true cavity path delay
       if (includeMB && model.concaveData && model.concaveData.numPairs > 0) {
-        const mb = doubleBounceGOPO(model.concaveData, ux, uy, uz, k0, true);
+        const mb = doubleBounceGOPO(model.concaveData, ux, uy, uz, k0, true, azRad);
         const rows = mb.contrib;
         for (let r = 0; r < rows.length; r++) {
-          const [aRe, aIm, Lhalf] = rows[r];
+          const row = rows[r];
+          const Lhalf = row[2];
+          let aRe = 0.0, aIm = 0.0;
+          switch (polTag) {
+            case "Mean":
+              aRe = row[0]; aIm = row[1];
+              break;
+            case "HH":
+              aRe = row[3]; aIm = row[4];
+              break;
+            case "VV":
+              aRe = row[5]; aIm = row[6];
+              break;
+            case "HV":
+            case "VH":
+              aRe = row[7]; aIm = row[8];
+              break;
+            case "PP":
+              aRe = 0.5 * (row[3] + row[5]);
+              aIm = 0.5 * (row[4] + row[6]);
+              break;
+            case "OP":
+              aRe = 0.5 * (row[3] - row[5]) + row[8];
+              aIm = 0.5 * (row[4] - row[6]) - row[7];
+              break;
+            case "LL":
+              aRe = 0.5 * (row[3] - row[5]) - row[8];
+              aIm = 0.5 * (row[4] - row[6]) + row[7];
+              break;
+          }
           const RD = Lhalf + ux * xRef;
           const fBin = (RD + rLim) / dBin;
           const i0 = Math.floor(fBin);
@@ -2313,6 +3154,7 @@
       fractionalBW: effectiveBwMHz / (1000.0 * freqGHz),
       deltaR_m,
       effDeltaR_m,
+      polarization: polTag,
       winType: wName,
       elDeg,
       azVec,
@@ -2442,16 +3284,20 @@
     C0,
     solveObliqueShock,
     solveTaylorMaccoll,
+    solveInverseTaylorMaccoll,
     traceStreamline,
     normalizeConfig,
     validateConfig,
     buildWaveriderModel,
     buildCanonicalTargetModel,
     buildConcaveSuperCells,
+    buildAxisymmetricConcaveSuperCells,
     evaluateAeroState,
     computeAeroPolar,
     facetPhaseIntegralTriangles,
     clipConvexPolygon,
+    normalizePolarization,
+    computePolarizationBasis,
     doubleBounceGOPO,
     evaluateRCSDirection,
     evaluateRCSMultiFreq,

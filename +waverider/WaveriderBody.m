@@ -40,6 +40,8 @@ classdef WaveriderBody
                     obj.SurfaceData = waverider.geometry.generateCaretWedge(cfg);
                 case 'cst'
                     obj.SurfaceData = waverider.geometry.generateCSTBody(cfg);
+                case 'rv'
+                    obj.SurfaceData = waverider.geometry.generateReentryVehicle(cfg);
                 otherwise
                     error('WaveriderBody:UnsupportedMethod', ...
                         'Unsupported method "%s".', cfg.Method);
@@ -75,13 +77,23 @@ classdef WaveriderBody
         end
 
         function rcsData = computeRCS(obj, freqGHz, azDeg, elDeg, varargin)
-            %COMPUTERCS Compute monostatic RCS (UHF to X-band) with concave multi-bounce.
+            %COMPUTERCS Compute monostatic RCS (UHF to X-band) with concave multi-bounce & polarimetry.
             rcsData = waverider.rcs.computeRCS(obj, freqGHz, azDeg, elDeg, varargin{:});
+        end
+
+        function rtiData = computeRangeProfile(obj, freqGHz, bandwidthMHz, azVecDeg, elDeg, varargin)
+            %COMPUTERANGEPROFILE Compute wideband range-angle-intensity (RTI / HRRP) sinogram.
+            rtiData = waverider.rcs.computeRangeProfile(obj, freqGHz, bandwidthMHz, azVecDeg, elDeg, varargin{:});
         end
 
         function [fig, summaryMetrics] = plotRCS(obj, varargin)
             %PLOTRCS Render 4-panel UHF-to-X-band RCS & concave underside scattering dashboard.
             [fig, summaryMetrics] = waverider.viz.plotRCSAnalysis(obj, varargin{:});
+        end
+
+        function [fig, rtiData] = plotRangeAngleIntensity(obj, varargin)
+            %PLOTRANGEANGLEINTENSITY Render 4-panel wideband RTI sinogram & HRRP cuts.
+            [fig, rtiData] = waverider.viz.plotRangeAngleIntensity(obj, varargin{:});
         end
 
         function filePath = exportSTL(obj, filePath, mode)
@@ -158,10 +170,23 @@ classdef WaveriderBody
             yLE = surfData.Y_up(1, :);
             xLE = surfData.X_up(1, :);
             Ny = numel(yLE);
+            isAxisym = isfield(surfData, 'IsAxisymmetric') && surfData.IsAxisymmetric;
 
             for s = 1:nStations
                 xs = xStations(s);
-                if xs <= L + 1e-7
+                if isAxisym
+                    xAxisVec = surfData.X_up(:, ceil(Ny / 2));
+                    yUpSlice  = interp1(xAxisVec, surfData.Y_up, xs, 'linear', 'extrap');
+                    zUpSlice  = interp1(xAxisVec, surfData.Z_up, xs, 'linear', 'extrap');
+                    yLowSlice = interp1(xAxisVec, surfData.Y_low, xs, 'linear', 'extrap');
+                    zLowSlice = interp1(xAxisVec, surfData.Z_low, xs, 'linear', 'extrap');
+
+                    yPoly = [yUpSlice, fliplr(yLowSlice)];
+                    zPoly = [zUpSlice, fliplr(zLowSlice)];
+                    areaX(s) = polyarea(yPoly, zPoly);
+                    halfSpanX(s) = max(abs(yPoly));
+                    thicknessX(s) = max(zUpSlice - zLowSlice);
+                elseif xs <= L + 1e-7
                     ySlice = [];
                     zUpSlice = [];
                     zLowSlice = [];
@@ -204,9 +229,35 @@ classdef WaveriderBody
 
             cumVolumeX = cumtrapz(xStations, areaX);
 
-            % Spanwise distributions on waverider forebody (X <= L)
-            spanY = yLE(:);
-            chordY = max(L - xLE(:), 0.0);
+            % Spanwise distributions on forebody (X <= L)
+            if isAxisym
+                spanY = surfData.Y_up(NxWave, :).';
+                bHalfRef = max(surfData.RBase_m, 1e-12);
+                rProf = surfData.RProfile;
+                xProf = surfData.XProfile;
+                xEntry = zeros(Ny, 1);
+                for k = 1:Ny
+                    rTgt = abs(spanY(k));
+                    idx = find(rProf >= rTgt - 1e-12, 1, 'first');
+                    if isempty(idx)
+                        xEntry(k) = L;
+                    elseif idx == 1
+                        xEntry(k) = xProf(1);
+                    else
+                        dr = rProf(idx) - rProf(idx - 1);
+                        if abs(dr) < 1e-12
+                            xEntry(k) = xProf(idx - 1);
+                        else
+                            xEntry(k) = xProf(idx - 1) + ((rTgt - rProf(idx - 1)) / dr) * (xProf(idx) - xProf(idx - 1));
+                        end
+                    end
+                end
+                chordY = max(L - xEntry, 0.0);
+            else
+                spanY = yLE(:);
+                bHalfRef = cfg.HalfSpan;
+                chordY = max(L - xLE(:), 0.0);
+            end
             baseHeightY = max(surfData.Z_up(NxWave, :).' - surfData.Z_low(NxWave, :).', 0.0);
             meanCpSpan = mean(surfData.Cp_low(1:NxWave, :), 1).';
             spanLoadNorm = meanCpSpan .* (chordY ./ L);
@@ -219,7 +270,7 @@ classdef WaveriderBody
             sec.HalfSpanX = halfSpanX;
             sec.MaxThicknessX = thicknessX;
             sec.SpanY = spanY;
-            sec.SpanEta = spanY ./ cfg.HalfSpan;
+            sec.SpanEta = spanY ./ bHalfRef;
             sec.ChordY = chordY;
             sec.BaseHeightY = baseHeightY;
             sec.MeanCpSpan = meanCpSpan;
@@ -233,13 +284,25 @@ classdef WaveriderBody
             aero = obj.AeroMetrics;
 
             fprintf('\n----------------------------------------------------------------\n');
-            fprintf('  WAVERIDER GLIDE BODY SUMMARY (%s)\n', upper(cfg.Method));
-            fprintf('----------------------------------------------------------------\n');
-            fprintf('  Design Mach / Shock Angle : M = %.2f, beta = %.2f deg\n', cfg.Mach, cfg.ShockAngleDeg);
-            fprintf('  Forebody Dimensions (Lxb) : %.2f m x %.2f m (HalfSpan = %.2f m)\n', ...
-                cfg.Length, 2.0 * cfg.HalfSpan, cfg.HalfSpan);
-            fprintf('  Upper Surface Mode        : %s (Canopy ratio = %.3f)\n', ...
-                cfg.UpperSurfaceType, cfg.CanopyHeightRatio);
+            if strcmpi(cfg.Method, 'rv')
+                fprintf('  REENTRY VEHICLE (RV) SUMMARY (%s | %s NOSE)\n', ...
+                    upper(strrep(cfg.RVBodyType, '_', '-')), upper(cfg.RVNoseType));
+                fprintf('----------------------------------------------------------------\n');
+                fprintf('  Design Mach / Conic Angles: M = %.2f | theta = [%s] deg\n', ...
+                    cfg.Mach, num2str(obj.SurfaceData.ConeAnglesDeg, '%.2f '));
+                fprintf('  Forebody Dimensions (LxD) : L = %.2f m, D_base = %.3f m (R_base = %.3f m)\n', ...
+                    cfg.Length, 2.0 * obj.SurfaceData.RBase_m, obj.SurfaceData.RBase_m);
+                fprintf('  Aft Plane Bulkhead        : %s (Cavity Depth = %.3f m)\n', ...
+                    upper(obj.SurfaceData.RVAftType), obj.SurfaceData.AftCavityDepth_m);
+            else
+                fprintf('  WAVERIDER GLIDE BODY SUMMARY (%s)\n', upper(cfg.Method));
+                fprintf('----------------------------------------------------------------\n');
+                fprintf('  Design Mach / Shock Angle : M = %.2f, beta = %.2f deg\n', cfg.Mach, cfg.ShockAngleDeg);
+                fprintf('  Forebody Dimensions (Lxb) : %.2f m x %.2f m (HalfSpan = %.2f m)\n', ...
+                    cfg.Length, 2.0 * cfg.HalfSpan, cfg.HalfSpan);
+                fprintf('  Upper Surface Mode        : %s (Canopy ratio = %.3f)\n', ...
+                    cfg.UpperSurfaceType, cfg.CanopyHeightRatio);
+            end
             if obj.SurfaceData.HasAftFrustum
                 fprintf('  Aft Conformal Frustum     : L_frust = %.2f m -> Booster R = %.3f m (%s blend)\n', ...
                     cfg.FrustumLength, cfg.BoosterRadius, cfg.FrustumBlendLaw);
@@ -291,23 +354,29 @@ classdef WaveriderBody
 
             isUpper  = (obj.MeshData.FacePatchID == 1);
             isLower  = (obj.MeshData.FacePatchID == 2);
+            isBase   = (obj.MeshData.FacePatchID == 3);
             isAftExt = (obj.MeshData.FacePatchID == 4) | (obj.MeshData.FacePatchID == 5);
             activeMask = isUpper | isLower | isAftExt;
 
-            % Calibrate embedded Newtonian factor K_cal on each lower-surface facet so
-            % Cp(alpha = 0) equals the exact Taylor-Maccoll / wedge / CST FaceCpDesign.
-            sinImpact0Low = max(-unitNormals(isLower, 1), 0.0);
+            % Calibrate embedded Newtonian factor K_cal on facets carrying exact design Cp
+            % (lower surface on waveriders; both dorsal & ventral surfaces on sharp TM cones).
             if isfield(obj.MeshData, 'FaceCpDesign') && numel(obj.MeshData.FaceCpDesign) == size(F, 1)
-                cpDesignLow = obj.MeshData.FaceCpDesign(isLower);
+                faceCpDesignVec = obj.MeshData.FaceCpDesign(:);
             else
                 NxWave = obj.SurfaceData.NxWaverider;
-                cpDesignLow = repmat(mean(obj.SurfaceData.Cp_low(1:NxWave, :), 'all'), sum(isLower), 1);
+                faceCpDesignVec = nan(size(F, 1), 1);
+                faceCpDesignVec(isLower) = mean(obj.SurfaceData.Cp_low(1:NxWave, :), 'all');
             end
-            cpMN0Low = CpMax .* (sinImpact0Low.^2);
-            kCalLow = ones(sum(isLower), 1);
-            validWindward0 = sinImpact0Low > 1e-4;
-            kCalLow(validWindward0) = cpDesignLow(validWindward0) ./ cpMN0Low(validWindward0);
-            kCalLow(~validWindward0) = 1.0;
+            isCal = (isUpper | isLower) & isfinite(faceCpDesignVec);
+            isUncal = activeMask & ~isCal;
+
+            sinImpact0Cal = max(-unitNormals(isCal, 1), 0.0);
+            cpDesignCal = faceCpDesignVec(isCal);
+            cpMN0Cal = CpMax .* (sinImpact0Cal.^2);
+            kCal = ones(sum(isCal), 1);
+            validWindward0 = sinImpact0Cal > 1e-4;
+            kCal(validWindward0) = cpDesignCal(validWindward0) ./ cpMN0Cal(validWindward0);
+            kCal(~validWindward0) = 1.0;
 
             % Eckert (1955) reference-temperature turbulent skin-friction estimate at h = 30 km (US Std Atm)
             T_inf = 226.51;
@@ -329,7 +398,8 @@ classdef WaveriderBody
             Sref = max(obj.Report.PlanformArea, 1e-12);
             CD_friction_est = Cf_inf * (obj.Report.WettedArea / Sref);
             Cp_base = -1.0 / (g * M^2);
-            CD_base_est = -Cp_base * (obj.Report.BaseArea / Sref);
+            projBaseArea = sum(max(crossVec(isBase, 1), 0.0));
+            CD_base_est = -Cp_base * (projBaseArea / Sref);
 
             cache = struct();
             cache.crossVec = crossVec;
@@ -342,10 +412,12 @@ classdef WaveriderBody
             cache.isUpper = isUpper;
             cache.isLower = isLower;
             cache.isAftExt = isAftExt;
+            cache.isCal = isCal;
+            cache.isUncal = isUncal;
             cache.activeMask = activeMask;
-            cache.cpDesignLow = cpDesignLow;
+            cache.cpDesignCal = cpDesignCal;
             cache.validWindward0 = validWindward0;
-            cache.kCalLow = kCalLow;
+            cache.kCal = kCal;
             cache.Sref = Sref;
             cache.Lref = cfg.Length;
             cache.CD_friction_est = CD_friction_est;
@@ -373,22 +445,25 @@ classdef WaveriderBody
 
             CpFace = zeros(size(cache.unitNormals, 1), 1);
 
-            sinImpLow = sinImpact(cache.isLower);
-            if abs(alphaDeg) < 1e-13
-                cpLow = cache.cpDesignLow;
-                leeMask0 = ~cache.validWindward0 & (sinLee(cache.isLower) > 0);
-                cpLowArr = CpPM(cache.isLower);
-                cpLow(leeMask0) = cpLowArr(leeMask0);
-                CpFace(cache.isLower) = cpLow;
-            else
-                cpWindLow = cache.kCalLow .* cache.CpMax .* (sinImpLow.^2);
-                cpLeeLow = CpPM(cache.isLower);
-                CpFace(cache.isLower) = cpWindLow .* (sinImpLow > 0) + cpLeeLow .* (sinImpLow == 0);
+            if any(cache.isCal)
+                sinImpCal = sinImpact(cache.isCal);
+                if abs(alphaDeg) < 1e-13
+                    cpCal = cache.cpDesignCal;
+                    leeMask0 = ~cache.validWindward0 & (sinLee(cache.isCal) > 0);
+                    cpCalArr = CpPM(cache.isCal);
+                    cpCal(leeMask0) = cpCalArr(leeMask0);
+                    CpFace(cache.isCal) = cpCal;
+                else
+                    cpWindCal = cache.kCal .* cache.CpMax .* (sinImpCal.^2);
+                    cpLeeCal = CpPM(cache.isCal);
+                    CpFace(cache.isCal) = cpWindCal .* (sinImpCal > 0) + cpLeeCal .* (sinImpCal == 0);
+                end
             end
 
-            upAndAft = cache.isUpper | cache.isAftExt;
-            sinImpUA = sinImpact(upAndAft);
-            CpFace(upAndAft) = cache.CpMax .* (sinImpUA.^2) .* (sinImpUA > 0) + CpPM(upAndAft) .* (sinImpUA == 0);
+            if any(cache.isUncal)
+                sinImpUA = sinImpact(cache.isUncal);
+                CpFace(cache.isUncal) = cache.CpMax .* (sinImpUA.^2) .* (sinImpUA > 0) + CpPM(cache.isUncal) .* (sinImpUA == 0);
+            end
 
             dF = -CpFace(cache.activeMask) .* cache.crossVec(cache.activeMask, :);
             F_total = sum(dF, 1) ./ cache.Sref;

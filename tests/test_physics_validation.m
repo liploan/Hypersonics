@@ -16,6 +16,13 @@ function results = test_physics_validation(varargin)
 %          - 90 deg dihedral double-bounce (sigma = 16 pi a^2 b^2 sin^2(phi)/lambda^2)
 %     D. Range profile vs. analytic point-spread function: scatterer position,
 %        3-dB width (0.886 c/2B rectangular, 1.44 c/2B Hann) and peak sidelobe.
+%     F. Full polarimetric Sinclair matrix (HH, VV, HV, VH) & circular (PP, OP)
+%        benchmarks: PEC plate, 0/45 deg dihedral, Lorentz reciprocity, Parseval
+%        span invariance, and OP/HV 1-bounce clutter rejection.
+%     G. Conventional axisymmetric Reentry Vehicles (RVs): 19-config 2-manifold
+%        topology & recessed-cavity winding audit, exact cone/paraboloid volumes,
+%        Taylor-Maccoll cone drag & zero-lift axisymmetry, circular-disk tail-on
+%        PO RCS, and concave aft cavity multi-bounce OP + delayed HRRP peak.
 %
 %   Name-Value options:
 %     'NumRandom' (default 24)  number of randomized geometry configurations
@@ -349,6 +356,272 @@ function results = test_physics_validation(varargin)
     record('E3 Bilateral mesh symmetry: |CY|=0 & RCS(+az)==RCS(-az)', maxCY < 1e-13 && rcsAsymErr < 1e-11, ...
         sprintf('max|CY| = %.2e, max|dRCS(+/-az)| = %.2e dB', maxCY, rcsAsymErr));
 
+    %% =====================================================================
+    %  F. POLARIMETRIC SCATTERING MATRIX (HH, VV, HV, VH) & CIRCULAR (PP, OP)
+    %  =====================================================================
+    fprintf('\n');
+    % F1: Flat PEC plate polarimetry: HH == VV == PP == exact, HV == VH == OP == 0 (-50 dBsm floor)
+    VpPol = [-0.5 -0.5 0; 0.5 -0.5 0; 0.5 0.5 0; -0.5 0.5 0];
+    FpPol = [1 2 3; 1 3 4];
+    platePol = fakeBody(VpPol, FpPol, 1);
+    lamPol = 299792458.0 / 10e9;
+    sigPlatePolDB = 10 * log10(4 * pi * 1.0^4 / lamPol^2);
+    pHH = waverider.rcs.computeRCS(platePol, 10.0, 0, 90, 'IncludeMultiBounce', false, 'IncludeEdgeDiffraction', false, 'Polarization', 'HH');
+    pVV = waverider.rcs.computeRCS(platePol, 10.0, 0, 90, 'IncludeMultiBounce', false, 'IncludeEdgeDiffraction', false, 'Polarization', 'VV');
+    pHV = waverider.rcs.computeRCS(platePol, 10.0, 0, 90, 'IncludeMultiBounce', false, 'IncludeEdgeDiffraction', false, 'Polarization', 'HV');
+    pPP = waverider.rcs.computeRCS(platePol, 10.0, 0, 90, 'IncludeMultiBounce', false, 'IncludeEdgeDiffraction', false, 'Polarization', 'PP');
+    pOP = waverider.rcs.computeRCS(platePol, 10.0, 0, 90, 'IncludeMultiBounce', false, 'IncludeEdgeDiffraction', false, 'Polarization', 'OP');
+    coPolErr = max([abs(pHH.SigmaTotal_dBsm - sigPlatePolDB), ...
+                    abs(pVV.SigmaTotal_dBsm - sigPlatePolDB), ...
+                    abs(pPP.SigmaTotal_dBsm - sigPlatePolDB)]);
+    nullPolErr = max([abs(pHV.SigmaTotal_dBsm - (-50.0)), abs(pOP.SigmaTotal_dBsm - (-50.0))]);
+    record('F1 PEC plate polarimetry: HH=VV=PP=exact, HV=OP=0', coPolErr < 0.05 && nullPolErr < 1e-12, ...
+        sprintf('co-pol err = %.2e dB, HV/OP = %.2f dBsm', coPolErr, pOP.SigmaTotal_dBsm));
+
+    % F2: 0-deg aligned 90-deg dihedral: S_HH^MB == -S_VV^MB, OP matches exact, HV=0, PP cancels 2-bounce
+    aDih = 0.5; bDih = 1.0; fDih = 10.0;
+    lamDih = 299792458.0 / (fDih * 1e9);
+    exactDihPolDB = 10 * log10(8 * pi * aDih^2 * bDih^2 / lamDih^2);
+    dih0 = rotatedDihedralBody(aDih, bDih, 24, 25, 0.0);
+    d0HH = waverider.rcs.computeRCS(dih0, fDih, 0, -90, 'IncludeMultiBounce', true, 'IncludeEdgeDiffraction', false, 'Polarization', 'HH');
+    d0HV = waverider.rcs.computeRCS(dih0, fDih, 0, -90, 'IncludeMultiBounce', true, 'IncludeEdgeDiffraction', false, 'Polarization', 'HV');
+    d0PP = waverider.rcs.computeRCS(dih0, fDih, 0, -90, 'IncludeMultiBounce', true, 'IncludeEdgeDiffraction', false, 'Polarization', 'PP');
+    d0OP = waverider.rcs.computeRCS(dih0, fDih, 0, -90, 'IncludeMultiBounce', true, 'IncludeEdgeDiffraction', false, 'Polarization', 'OP');
+    [~, ~, sMB0] = waverider.rcs.doubleBounceGOPO(d0HH.ConcavePairs, [0, 0, -1], 2 * pi / lamDih, false, [0, 1, 0]);
+    oppPhaseRes = abs(sMB0.HH + sMB0.VV) / abs(sMB0.HH);
+    sPP0_mb = 0.5 * (sMB0.HH + sMB0.VV) + 0.5i * (sMB0.VH - sMB0.HV);
+    sOP0_mb = 0.5 * (sMB0.HH - sMB0.VV) - 0.5i * (sMB0.HV + sMB0.VH);
+    ppMBRes = abs(sPP0_mb) / abs(sOP0_mb);
+    ppRejectDB = d0OP.SigmaTotal_dBsm - d0PP.SigmaTotal_dBsm;
+    record('F2 0deg dihedral: S_HH=-S_VV, OP=exact, PP cancels 2-bounce', ...
+        abs(d0OP.SigmaTotal_dBsm - exactDihPolDB) < 0.2 && oppPhaseRes < 1e-12 && ppMBRes < 1e-12 && ...
+        abs(d0HV.Polarimetric.S_HV)^2 < 1e-20 && ppRejectDB > 35.0, ...
+        sprintf('OP=%.2f dBsm (exact %.2f), |S_PP^MB|/|S_OP^MB|=%.2e, OP-PP=%.1f dB', ...
+            d0OP.SigmaTotal_dBsm, exactDihPolDB, ppMBRes, ppRejectDB));
+
+    % F3: 45-deg canted 90-deg dihedral: 100% linear depolarization into HV/VH & roll-invariant OP
+    dih45 = rotatedDihedralBody(aDih, bDih, 24, 25, 45.0);
+    d45HH = waverider.rcs.computeRCS(dih45, fDih, 0, -90, 'IncludeMultiBounce', true, 'IncludeEdgeDiffraction', false, 'Polarization', 'HH');
+    d45HV = waverider.rcs.computeRCS(dih45, fDih, 0, -90, 'IncludeMultiBounce', true, 'IncludeEdgeDiffraction', false, 'Polarization', 'HV');
+    d45VH = waverider.rcs.computeRCS(dih45, fDih, 0, -90, 'IncludeMultiBounce', true, 'IncludeEdgeDiffraction', false, 'Polarization', 'VH');
+    d45OP = waverider.rcs.computeRCS(dih45, fDih, 0, -90, 'IncludeMultiBounce', true, 'IncludeEdgeDiffraction', false, 'Polarization', 'OP');
+    [~, ~, sMB45] = waverider.rcs.doubleBounceGOPO(d45HH.ConcavePairs, [0, 0, -1], 2 * pi / lamDih, false, [0, 1, 0]);
+    hvErrDB = abs(d45HV.SigmaTotal_dBsm - exactDihPolDB);
+    coMBRes = max(abs(sMB45.HH), abs(sMB45.VV)) / abs(sMB45.HV);
+    coSuppressDB = d45HV.SigmaTotal_dBsm - d45HH.SigmaTotal_dBsm;
+    opRollDiffDB = abs(d45OP.SigmaTotal_dBsm - d0OP.SigmaTotal_dBsm);
+    record('F3 45deg canted dihedral: pure HV/VH & roll-invariant OP', ...
+        hvErrDB < 0.2 && abs(d45HV.SigmaTotal_dBsm - d45VH.SigmaTotal_dBsm) < 1e-13 && ...
+        coMBRes < 1e-12 && coSuppressDB > 35.0 && opRollDiffDB < 1e-10, ...
+        sprintf('HV=%.2f dBsm, |S_HH^MB|/|S_HV^MB|=%.2e, |OP(45)-OP(0)|=%.2e dB', ...
+            d45HV.SigmaTotal_dBsm, coMBRes, opRollDiffDB));
+
+    % F4: 3D waverider Lorentz reciprocity (S_HV == S_VH), Parseval Span identity & mirror symmetry
+    bPol = waverider.WaveriderBody('booster_mounted');
+    rPol = bPol.computeRCS([1.5, 10.0], [-55; -25; 0; 25; 45; 55], -22.0, 'Polarization', 'HH');
+    P = rPol.Polarimetric;
+    maxRecipErr = max(abs(P.S_HV(:) - P.S_VH(:)));
+    circPower = abs(P.S_PP).^2 + 0.5 .* (abs(P.S_OP).^2 + abs(P.S_LL).^2);
+    linHalfSpan = 0.5 .* P.Span_m2;
+    maxSpanRelErr = max(abs(circPower(:) - linHalfSpan(:)) ./ max(linHalfSpan(:), 1e-15));
+    rMirror = bPol.computeRCS(10.0, [45.0; -45.0], -22.0, 'Polarization', 'OP');
+    PM = rMirror.Polarimetric;
+    mirrorHandErr = max([abs(PM.HH_dBsm(1) - PM.HH_dBsm(2)), ...
+                         abs(PM.HV_dBsm(1) - PM.HV_dBsm(2)), ...
+                         abs(PM.OP_dBsm(1) - PM.LL_dBsm(2))]);
+    record('F4 3D waverider reciprocity, Parseval span & mirror symmetry', ...
+        maxRecipErr < 1e-14 && maxSpanRelErr < 1e-13 && mirrorHandErr < 1e-9, ...
+        sprintf('|S_HV-S_VH|=%.2e, span err=%.2e, mirror=%.2e dB', maxRecipErr, maxSpanRelErr, mirrorHandErr));
+
+    % F5: Polarimetric HRRP/RTI: OP & HV reject 100% of 1-bounce clutter while isolating delayed 2-bounce
+    cfgCav = waverider.WaveriderConfig('caret');
+    cfgCav.LeadingEdgeAnhedralDeg = 20.0;
+    bCav = waverider.WaveriderBody(cfgCav);
+    rtiHH = bCav.computeRangeProfile(10.0, 1000.0, [75; 84], -45.0, 'WindowType', 'hann', 'Polarization', 'HH');
+    rtiOP = bCav.computeRangeProfile(10.0, 1000.0, [75; 84], -45.0, 'WindowType', 'hann', 'Polarization', 'OP');
+    rtiHV = bCav.computeRangeProfile(10.0, 1000.0, [75; 84], -45.0, 'WindowType', 'hann', 'Polarization', 'HV');
+    peakSngHH = max(rtiHH.RTI_single_dBsm(:));
+    maxSngOPFloorDev = max(abs(rtiOP.RTI_single_dBsm(:) - (-50.0)));
+    maxSngHVFloorDev = max(abs(rtiHV.RTI_single_dBsm(:) - (-50.0)));
+    peakDblOP = max(rtiOP.RTI_double_dBsm(:));
+    opTotVsDblDiff = max(abs(rtiOP.RTI_total_dBsm(:) - rtiOP.RTI_double_dBsm(:)));
+    record('F5 Polarimetric HRRP/RTI: OP & HV isolate delayed 2-bounce', ...
+        peakSngHH > -25.0 && maxSngOPFloorDev < 1e-12 && maxSngHVFloorDev < 1e-12 && ...
+        peakDblOP > -20.0 && opTotVsDblDiff < 1e-12, ...
+        sprintf('HH 1-bounce=%.1f dBsm -> OP/HV 1-bounce=-50.0 dBsm, OP 2-bounce=%.1f dBsm', peakSngHH, peakDblOP));
+
+    %% =====================================================================
+    %  G. CONVENTIONAL AXISYMMETRIC REENTRY VEHICLES (RVs): TOPOLOGY, AERO & RCS
+    %  =====================================================================
+
+    % G1: 19-configuration RV topology & winding audit (3 body x 3 nose x 2 aft + booster-mounted RV)
+    rvBodies = {'mono_conic', 'bi_conic', 'tri_conic'};
+    rvNoses  = {'conical', 'spherical', 'ogive'};
+    rvAfts   = {'flat', 'concave'};
+    rvFails = {};
+    maxWindingErrRV = 0;
+    nRVChecked = 0;
+
+    for ib = 1:numel(rvBodies)
+        for in = 1:numel(rvNoses)
+            for ia = 1:numel(rvAfts)
+                nRVChecked = nRVChecked + 1;
+                cfgRV = waverider.WaveriderConfig( ...
+                    'Method', 'rv', 'Mach', 7.0, 'Length', 3.2, ...
+                    'RVBodyType', rvBodies{ib}, ...
+                    'RVNoseType', rvNoses{in}, ...
+                    'RVNoseBluntnessRatio', 0.20 * double(~strcmp(rvNoses{in}, 'conical')), ...
+                    'RVConeAnglesDeg', [11.5, 6.5, 13.0], ...
+                    'RVStageFractions', [0.38, 0.34, 0.28], ...
+                    'RVAftType', rvAfts{ia}, ...
+                    'RVAftCavityDepthRatio', 0.35, ...
+                    'RVAftCavityPower', 2.2, ...
+                    'NumStreamwise', 32, 'NumHalfSpan', 25, 'NumBaseLayers', 8);
+                bRV = waverider.WaveriderBody(cfgRV);
+                Vrv = bRV.MeshData.TR.Points;
+                Frv = bRV.MeshData.TR.ConnectivityList;
+                topoRV = independentTopology(Vrv, Frv);
+                ptsTest = [0.52 * cfgRV.Length, 0, 0; -0.20 * cfgRV.Length, 0, 0];
+                if bRV.SurfaceData.AftCavityDepth_m > 1e-5
+                    ptsTest = [ptsTest; cfgRV.Length - 0.5 * bRV.SurfaceData.AftCavityDepth_m, 0, 0]; %#ok<AGROW>
+                end
+                wRV = windingNumber(Vrv, Frv, ptsTest);
+                wErr = max([abs(wRV(1) - 1.0); abs(wRV(2:end))]);
+                maxWindingErrRV = max(maxWindingErrRV, wErr);
+                if ~bRV.Report.IsWatertight || bRV.Report.EulerCharacteristic ~= 2 || ...
+                        ~topoRV.manifoldOriented || topoRV.nDegenerate > 0 || wErr > 1e-6
+                    rvFails{end+1} = sprintf('%s/%s/%s', rvBodies{ib}, rvNoses{in}, rvAfts{ia}); %#ok<AGROW>
+                end
+            end
+        end
+    end
+
+    % 19th config: booster-mounted bi-conic RV
+    nRVChecked = nRVChecked + 1;
+    cfgRVBoost = waverider.WaveriderConfig('rv_biconic');
+    cfgRVBoost.EnableAftFrustum = true;
+    cfgRVBoost.FrustumLength = 1.1;
+    cfgRVBoost.BoosterRadius = 0.55;
+    cfgRVBoost.EnableRocketStage = true;
+    cfgRVBoost.RocketStageLength = 1.4;
+    cfgRVBoost.RocketConeAngleDeg = 3.5;
+    bRVBoost = waverider.WaveriderBody(cfgRVBoost);
+    topoBoost = independentTopology(bRVBoost.MeshData.TR.Points, bRVBoost.MeshData.TR.ConnectivityList);
+    wBoost = windingNumber(bRVBoost.MeshData.TR.Points, bRVBoost.MeshData.TR.ConnectivityList, ...
+        [0.52 * cfgRVBoost.Length, 0, 0; -0.20 * cfgRVBoost.Length, 0, 0]);
+    wErrBoost = max(abs(wBoost(1) - 1.0), abs(wBoost(2)));
+    maxWindingErrRV = max(maxWindingErrRV, wErrBoost);
+    if ~bRVBoost.Report.IsWatertight || bRVBoost.Report.EulerCharacteristic ~= 2 || ...
+            ~topoBoost.manifoldOriented || topoBoost.nDegenerate > 0 || wErrBoost > 1e-6
+        rvFails{end+1} = 'bi_conic/spherical/booster_mounted';
+    end
+
+    record('G1 RV sweep: all 19 configs watertight & cavity exterior', ...
+        isempty(rvFails), ...
+        sprintf('%d RV configs, %d issues, max|dW|=%.2e', nRVChecked, numel(rvFails), maxWindingErrRV));
+
+    % G2: Analytical right-circular cone & recessed paraboloid cap volumetric convergence
+    Lcone = 3.0;
+    thConeDeg = 10.0;
+    cfgConeFlat = waverider.WaveriderConfig( ...
+        'Method', 'rv', 'Mach', 7.0, 'Length', Lcone, ...
+        'RVBodyType', 'mono_conic', 'RVNoseType', 'conical', ...
+        'RVConeAnglesDeg', [thConeDeg, thConeDeg, thConeDeg], ...
+        'RVAftType', 'flat', ...
+        'NumStreamwise', 48, 'NumHalfSpan', 73, 'NumBaseLayers', 16);
+    cfgConeConc = cfgConeFlat;
+    cfgConeConc.RVAftType = 'concave';
+    cfgConeConc.RVAftCavityDepthRatio = 0.40;
+    cfgConeConc.RVAftCavityPower = 2.0;
+
+    bConeFlat = waverider.WaveriderBody(cfgConeFlat);
+    bConeConc = waverider.WaveriderBody(cfgConeConc);
+    RbCone = Lcone * tand(thConeDeg);
+    VconeExact = (pi * RbCone^2 * Lcone) / 3.0;
+    dAftExact = bConeConc.SurfaceData.AftCavityDepth_m;
+    dVparabExact = 0.5 * pi * RbCone^2 * dAftExact;
+    coneVolRelErr = abs(bConeFlat.Report.EnclosedVolume - VconeExact) / VconeExact;
+    cavVolRelErr = abs((bConeFlat.Report.EnclosedVolume - bConeConc.Report.EnclosedVolume) - dVparabExact) / dVparabExact;
+    record('G2 RV exact cone & paraboloid aft-cavity volumes', ...
+        coneVolRelErr < 2e-3 && cavVolRelErr < 1e-2, ...
+        sprintf('cone err=%.3f%%, paraboloid cap err=%.3f%%', 100 * coneVolRelErr, 100 * cavVolRelErr));
+
+    % G3: Exact Taylor-Maccoll sharp-cone wave drag & RV zero-lift axisymmetry
+    cpConeExact = bConeFlat.SurfaceData.FlowSolution.CpCone;
+    cdWaveBaseRef = (bConeFlat.AeroMetrics.CD_wave * bConeFlat.Report.PlanformArea) / (pi * RbCone^2);
+    cdConeRelErr = abs(cdWaveBaseRef - cpConeExact) / cpConeExact;
+
+    rvPresetNames = {'rv_monoconic', 'rv_biconic', 'rv_triconic_flare', 'rv_sharp_conic'};
+    maxZeroAero = 0;
+    maxAntisymErr = 0;
+    minPosLift = inf;
+    for ip = 1:numel(rvPresetNames)
+        bP = waverider.WaveriderBody(rvPresetNames{ip});
+        am = bP.AeroMetrics;
+        maxZeroAero = max([maxZeroAero, abs(am.CL), abs(am.CY), abs(am.Cm)]);
+        polPN = bP.computeAeroPolar([-5.0, 5.0]);
+        minPosLift = min(minPosLift, polPN.CL(2));
+        maxAntisymErr = max([maxAntisymErr, abs(polPN.CL(1) + polPN.CL(2)), abs(polPN.CD_wave(1) - polPN.CD_wave(2))]);
+    end
+    record('G3 RV Taylor-Maccoll cone drag & zero-lift axisymmetry', ...
+        cdConeRelErr < 2e-3 && maxZeroAero < 1e-13 && minPosLift > 0.02 && maxAntisymErr < 1e-13, ...
+        sprintf('TM CD err=%.3f%%, max|CL0,CY0,Cm0|=%.2e, antisym=%.2e', 100 * cdConeRelErr, maxZeroAero, maxAntisymErr));
+
+    % G4: Axisymmetric RV radar symmetries & flat aft circular-disk tail-on PO RCS
+    rAzSym = bConeFlat.computeRCS(10.0, [42.0; -42.0], -18.0, 'Polarization', 'HH');
+    rElPos = bConeFlat.computeRCS(10.0, 35.0, +24.0, 'Polarization', 'VV');
+    rElNeg = bConeFlat.computeRCS(10.0, 35.0, -24.0, 'Polarization', 'VV');
+    symRadErr = max(abs(rAzSym.SigmaTotal_dBsm(1) - rAzSym.SigmaTotal_dBsm(2)), ...
+                    abs(rElPos.SigmaTotal_dBsm - rElNeg.SigmaTotal_dBsm));
+
+    lam10 = 299792458.0 / 10.0e9;
+    Abase = pi * RbCone^2;
+    sigDiskExactDB = 10 * log10(4 * pi * Abase^2 / lam10^2);
+    tailRes = bConeFlat.computeRCS(10.0, 180.0, 0.0, 'Polarization', 'HH');
+    PTail = tailRes.Polarimetric;
+    diskErrDB = max([abs(PTail.HH_dBsm - sigDiskExactDB), ...
+                     abs(PTail.VV_dBsm - sigDiskExactDB), ...
+                     abs(PTail.PP_dBsm - sigDiskExactDB)]);
+    record('G4 RV radar symmetry & flat-aft circular disk tail-on RCS', ...
+        symRadErr < 1e-9 && diskErrDB < 0.05 && abs(PTail.OP_dBsm - (-50.0)) < 1e-12, ...
+        sprintf('tail HH=%.2f dBsm vs disk=%.2f dBsm (err %.3f dB), sym=%.2e dB', ...
+            PTail.HH_dBsm, sigDiskExactDB, diskErrDB, symRadErr));
+
+    % G5: Flat vs. concave RV aft plane off-tail multi-bounce OP & delayed HRRP cavity peak
+    cfgAftFlat = waverider.WaveriderConfig( ...
+        'Method', 'rv', 'Mach', 7.0, 'Length', 3.2, ...
+        'RVBodyType', 'bi_conic', 'RVNoseType', 'spherical', ...
+        'RVNoseBluntnessRatio', 0.18, ...
+        'RVConeAnglesDeg', [11.5, 6.0, 6.0], ...
+        'RVStageFractions', [0.42, 0.58, 0.0], ...
+        'RVAftType', 'flat');
+    cfgAftConc = cfgAftFlat;
+    cfgAftConc.RVAftType = 'concave';
+    cfgAftConc.RVAftCavityDepthRatio = 0.45;
+    cfgAftConc.RVAftCavityPower = 2.6;
+
+    bAftFlat = waverider.WaveriderBody(cfgAftFlat);
+    bAftConc = waverider.WaveriderBody(cfgAftConc);
+    flatOffOP = bAftFlat.computeRCS(10.0, 168.0, 0.0, 'Polarization', 'OP');
+    concOffOP = bAftConc.computeRCS(10.0, 168.0, 0.0, 'Polarization', 'OP');
+    rtiFlatAft = bAftFlat.computeRangeProfile(10.0, 2000.0, 168.0, 0.0, 'WindowType', 'hann', 'Polarization', 'HH');
+    rtiConcAft = bAftConc.computeRangeProfile(10.0, 2000.0, 168.0, 0.0, 'WindowType', 'hann', 'Polarization', 'HH');
+
+    [~, idxSng] = max(rtiConcAft.RTI_single_dBsm(:));
+    [valDbl, idxDbl] = max(rtiConcAft.RTI_double_dBsm(:));
+    rSngPk = rtiConcAft.rangeVec_m(idxSng);
+    rDblPk = rtiConcAft.rangeVec_m(idxDbl);
+    rBaseRim = rtiConcAft.R_waveriderBase_m(1);
+    flatMaxDbl = max(rtiFlatAft.RTI_double_dBsm(:));
+    cavDelayM = rDblPk - rBaseRim;
+    record('G5 Concave RV aft cavity: OP retroreflection & delayed HRRP', ...
+        abs(flatOffOP.SigmaTotal_dBsm - (-50.0)) < 1e-12 && ...
+        abs(flatMaxDbl - (-50.0)) < 1e-12 && ...
+        concOffOP.SigmaTotal_dBsm > 10.0 && ...
+        valDbl > 10.0 && cavDelayM > 0.20 && rDblPk > rSngPk + 0.15, ...
+        sprintf('flat OP=%.1f dBsm -> concave OP=%.2f dBsm, cavity delay +%.1f cm', ...
+            flatOffOP.SigmaTotal_dBsm, concOffOP.SigmaTotal_dBsm, 100 * cavDelayM));
+
     nPass = sum([results.Pass]);
     fprintf('=====================================================================\n');
     fprintf('  %d / %d VALIDATION CHECKS PASSED\n', nPass, numel(results));
@@ -431,6 +704,37 @@ function body = dihedralBody(a, b, nX, nY)
     % sanity: normals point downward
     n = faceNormal(body.MeshData.TR);
     assert(all(n(:, 3) < 0), 'dihedral normals must point downward');
+end
+
+function body = rotatedDihedralBody(a, b, nX, nY, alphaDeg)
+    % 90-deg PEC dihedral opening downward (-Z), rotated in X-Y plane by alphaDeg
+    yMax = a / sqrt(2);
+    x0 = linspace(-0.5 * b, 0.5 * b, nX);
+    y0 = linspace(-yMax, yMax, nY);
+    [Y0, X0] = meshgrid(y0, x0);
+    Z = -abs(Y0);
+    ca = cosd(alphaDeg);
+    sa = sind(alphaDeg);
+    X = X0 .* ca - Y0 .* sa;
+    Y = X0 .* sa + Y0 .* ca;
+    V = [X(:), Y(:), Z(:)];
+    id = reshape(1:numel(X), nX, nY);
+    F = zeros(2 * (nX - 1) * (nY - 1), 3); m = 0;
+    for i = 1:nX - 1
+        for j = 1:nY - 1
+            p1 = id(i, j); p2 = id(i + 1, j); p3 = id(i + 1, j + 1); p4 = id(i, j + 1);
+            m = m + 1; F(m, :) = [p1 p3 p2];   % outward normal downward
+            m = m + 1; F(m, :) = [p1 p4 p3];
+        end
+    end
+    body = struct();
+    body.MeshData.TR = triangulation(F, V);
+    body.MeshData.FacePatchID = 2 * ones(size(F, 1), 1);
+    body.SurfaceData.X_low = X; body.SurfaceData.Y_low = Y; body.SurfaceData.Z_low = Z;
+    body.SurfaceData.NxWaverider = nX;
+    body.Config = struct('Length', b);
+    n = faceNormal(body.MeshData.TR);
+    assert(all(n(:, 3) < 0), 'rotated dihedral normals must point downward');
 end
 
 function [V, F] = icosphere(nSub)

@@ -63,6 +63,7 @@ function tm = taylorMaccoll(M1, betaDeg, gamma)
     tm.Mach = M_local;
     tm.p_p1 = p_p1;
     tm.Cp = (p_p1 - 1.0) ./ (0.5 * gamma * M1^2);
+    tm.CpCone = tm.Cp(1);
 end
 
 function dydt = tmODE(theta, y, gamma)

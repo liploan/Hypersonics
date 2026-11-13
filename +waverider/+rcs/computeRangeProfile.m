@@ -31,11 +31,14 @@ function rtiData = computeRangeProfile(body, freqGHz, bandwidthMHz, azVecDeg, el
 
     p = inputParser;
     addParameter(p, 'IncludeMultiBounce', true, @islogical);
+    addParameter(p, 'Polarization', 'Mean', @(x) ischar(x) || isstring(x));
     addParameter(p, 'WindowType', 'hann', @(x) ischar(x) || isstring(x));
     addParameter(p, 'NumRangeBins', 241, @(x) isnumeric(x) && isscalar(x) && x >= 32);
     addParameter(p, 'PrecomputedConcavePairs', [], @(x) isstruct(x) || isempty(x));
     parse(p, varargin{:});
     opts = p.Results;
+    polTag = normalizePolarizationTag(opts.Polarization);
+    hasSingleBouncePol = ismember(polTag, {'Mean', 'HH', 'VV', 'PP'});
 
     c0 = 299792458.0; % [m/s]
     if bandwidthMHz <= 0
@@ -113,26 +116,46 @@ function rtiData = computeRangeProfile(body, freqGHz, bandwidthMHz, azVecDeg, el
     for iAz = 1:nAz
         azRad = deg2rad(azVecDeg(iAz));
         u = [-cos(elRad) * cos(azRad), cos(elRad) * sin(azRad), sin(elRad)];
+        eH = [sin(azRad), cos(azRad), 0.0];
 
         R_nose_m(iAz)          = -([xMin, 0, 0] - rRef) * u.';
         R_waveriderBase_m(iAz) = -([body.Config.Length, 0, 0] - rRef) * u.';
         R_aftBase_m(iAz)       = -([xMax, 0, 0] - rRef) * u.';
 
-        % 1. Single-bounce PO scattering centres (identical amplitudes to computeRCS)
-        cosTh = faceNormals * u.';
-        lit = find(cosTh > 0);
-        Ilit = waverider.rcs.facetPhaseIntegral(v1(lit, :), v2(lit, :), v3(lit, :), faceNormals(lit, :), 2.0 * k0 .* u);
-        aS = (1i * k0 / sqrt(pi)) .* cosTh(lit) .* Ilit;
-        RS = -(faceCenters(lit, :) - rRef) * u.';
-        profSingle = splatAndCompress(aS, RS, rangeVec_m, kern);
+        % 1. Single-bounce PO scattering centres (zero in HV/VH/OP/LL channels)
+        if hasSingleBouncePol
+            cosTh = faceNormals * u.';
+            lit = find(cosTh > 0);
+            Ilit = waverider.rcs.facetPhaseIntegral(v1(lit, :), v2(lit, :), v3(lit, :), faceNormals(lit, :), 2.0 * k0 .* u);
+            aS = (1i * k0 / sqrt(pi)) .* cosTh(lit) .* Ilit;
+            RS = -(faceCenters(lit, :) - rRef) * u.';
+            profSingle = splatAndCompress(aS, RS, rangeVec_m, kern);
+        else
+            profSingle = zeros(1, nR);
+        end
 
         % 2. GO-PO concave double-bounce centres with true cavity path delay
         profDouble = zeros(1, nR);
         if opts.IncludeMultiBounce && concavePairs.numPairs > 0
-            [~, con] = waverider.rcs.doubleBounceGOPO(concavePairs, u, k0, true);
+            [~, con] = waverider.rcs.doubleBounceGOPO(concavePairs, u, k0, true, eH);
             rows = con{1};
             if ~isempty(rows)
-                aD = rows(:, 1);
+                switch polTag
+                    case 'Mean'
+                        aD = rows(:, 1);
+                    case 'HH'
+                        aD = rows(:, 6);
+                    case 'VV'
+                        aD = rows(:, 7);
+                    case {'HV', 'VH'}
+                        aD = rows(:, 8);
+                    case 'PP'
+                        aD = 0.5 .* (rows(:, 6) + rows(:, 7)) + 0.5i .* (rows(:, 9) - rows(:, 8));
+                    case 'OP'
+                        aD = 0.5 .* (rows(:, 6) - rows(:, 7)) - 0.5i .* (rows(:, 8) + rows(:, 9));
+                    case 'LL'
+                        aD = 0.5 .* (rows(:, 6) - rows(:, 7)) + 0.5i .* (rows(:, 8) + rows(:, 9));
+                end
                 RD = real(rows(:, 2)) + u * rRef.';
                 profDouble = splatAndCompress(aD, RD, rangeVec_m, kern);
             end
@@ -148,6 +171,7 @@ function rtiData = computeRangeProfile(body, freqGHz, bandwidthMHz, azVecDeg, el
     rtiData.freqGHz            = freqGHz;
     rtiData.bandwidthMHz       = bandwidthMHz;
     rtiData.fractionalBW       = bandwidthMHz / (1000 * freqGHz);
+    rtiData.polarization       = polTag;
     rtiData.windowType         = winType;
     rtiData.deltaR_m           = deltaR_m;
     rtiData.effectiveDeltaR_m  = effectiveDeltaR_m;
@@ -185,4 +209,30 @@ function y = nsinc(x)
     y = ones(size(x));
     nz = abs(x) > 1e-12;
     y(nz) = sin(pi .* x(nz)) ./ (pi .* x(nz));
+end
+
+function tag = normalizePolarizationTag(polIn)
+    s = upper(strtrim(char(polIn)));
+    switch s
+        case {'MEAN', 'SCALAR', 'UNPOL'}
+            tag = 'Mean';
+        case 'HH'
+            tag = 'HH';
+        case 'VV'
+            tag = 'VV';
+        case 'HV'
+            tag = 'HV';
+        case 'VH'
+            tag = 'VH';
+        case {'PP', 'RL', 'LR'}
+            tag = 'PP';
+        case {'OP', 'RR'}
+            tag = 'OP';
+        case 'LL'
+            tag = 'LL';
+        otherwise
+            error('computeRangeProfile:Polarization', ...
+                'Unsupported Polarization "%s". Choose Mean, HH, VV, HV, VH, PP (RL/LR), OP (RR), or LL.', ...
+                char(polIn));
+    end
 end

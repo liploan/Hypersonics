@@ -11,6 +11,7 @@ function [fig, summaryMetrics] = plotRCSAnalysis(body, varargin)
     p = inputParser;
     addParameter(p, 'Visible', 'on', @(x) ischar(x) || isstring(x));
     addParameter(p, 'VentralElevationDeg', -20.0, @isnumeric);
+    addParameter(p, 'Polarization', 'Mean', @(x) ischar(x) || isstring(x));
     parse(p, varargin{:});
     opts = p.Results;
 
@@ -33,26 +34,26 @@ function [fig, summaryMetrics] = plotRCSAnalysis(body, varargin)
     % 1. Compute Azimuthal Sweep (0 to 180 deg) at Ventral Elevation
     azVec = linspace(0.0, 180.0, 181).';
     rcsAz = waverider.rcs.computeRCS(body, bandFreqsGHz, azVec, opts.VentralElevationDeg, ...
-        'PrecomputedConcavePairs', cp);
+        'Polarization', opts.Polarization, 'PrecomputedConcavePairs', cp);
 
     % 2. Compute Elevation Cut (-90 deg Ventral to +90 deg Dorsal) at Oblique Az = 45 deg
     elVec = linspace(-90.0, 90.0, 181).';
     rcsEl = waverider.rcs.computeRCS(body, [0.5, 3.0, 10.0], 45.0, elVec, ...
-        'PrecomputedConcavePairs', cp);
+        'Polarization', opts.Polarization, 'PrecomputedConcavePairs', cp);
 
     % 3. Compute Continuous Frequency Sweep (0.3 GHz UHF to 12.0 GHz X-band)
     freqSweepGHz = linspace(0.3, 12.0, 60);
     aspectAz = [0.0;   45.0;  45.0;  85.0];
     aspectEl = [-10.0; -22.0; +22.0; -20.0];
     rcsFreq = waverider.rcs.computeRCS(body, freqSweepGHz, aspectAz, aspectEl, ...
-        'PrecomputedConcavePairs', cp);
+        'Polarization', opts.Polarization, 'PrecomputedConcavePairs', cp);
 
     fig = figure('Color', 'w', 'Position', [55, 55, 1420, 890], 'Visible', opts.Visible);
     waverider.viz.stylePublicationFigure(fig, 'init');
     tl = tiledlayout(fig, 2, 2, 'TileSpacing', 'loose', 'Padding', 'compact');
 
-    title(tl, sprintf('Multi-Band RCS & Concave Underside Scattering Analysis (UHF to X-Band) [%s | L = %.1f m]', ...
-        upper(strrep(cfg.Method, '_', ' ')), cfg.Length), ...
+    title(tl, sprintf('Multi-Band RCS & Concave Underside Scattering Analysis (UHF to X-Band) [%s | L = %.1f m | Pol: %s]', ...
+        upper(strrep(cfg.Method, '_', ' ')), cfg.Length, rcsAz.Polarization), ...
         'FontSize', 14, 'FontWeight', 'bold');
 
     % ---------------------------------------------------------------------
