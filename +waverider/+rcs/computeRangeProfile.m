@@ -31,6 +31,7 @@ function rtiData = computeRangeProfile(body, freqGHz, bandwidthMHz, azVecDeg, el
 
     p = inputParser;
     addParameter(p, 'IncludeMultiBounce', true, @islogical);
+    addParameter(p, 'IncludeEdgeDiffraction', false, @islogical);
     addParameter(p, 'Polarization', 'Mean', @(x) ischar(x) || isstring(x));
     addParameter(p, 'WindowType', 'hann', @(x) ischar(x) || isstring(x));
     addParameter(p, 'NumRangeBins', 241, @(x) isnumeric(x) && isscalar(x) && x >= 32);
@@ -69,6 +70,7 @@ function rtiData = computeRangeProfile(body, freqGHz, bandwidthMHz, azVecDeg, el
     TR = body.MeshData.TR;
     V = TR.Points;
     F = TR.ConnectivityList;
+    patchID = body.MeshData.FacePatchID;
     xMin = min(V(:, 1));
     xMax = max(V(:, 1));
     totalLength = xMax - xMin;
@@ -81,6 +83,28 @@ function rtiData = computeRangeProfile(body, freqGHz, bandwidthMHz, azVecDeg, el
     crossVec = 0.5 .* cross(v2 - v1, v3 - v1, 2);
     faceAreas = sqrt(sum(crossVec.^2, 2)) + 1e-15;
     faceNormals = crossVec ./ faceAreas;
+
+    e12 = v2 - v1; e23 = v3 - v2; e31 = v1 - v3;
+    mid12 = 0.5 .* (v1 + v2); mid23 = 0.5 .* (v2 + v3); mid31 = 0.5 .* (v3 + v1);
+    m12 = cross(e12, faceNormals, 2);
+    m23 = cross(e23, faceNormals, 2);
+    m31 = cross(e31, faceNormals, 2);
+    Lmax2 = max([sum(e12.^2, 2), sum(e23.^2, 2), sum(e31.^2, 2)], [], 2);
+
+    isBase = (patchID == 3);
+    sd = body.SurfaceData;
+    hasConcaveAft = isfield(sd, 'IsAxisymmetric') && sd.IsAxisymmetric && ...
+                    (~isfield(sd, 'HasAftFrustum') || ~sd.HasAftFrustum) && ...
+                    isfield(sd, 'AftCavityDepth_m') && (sd.AftCavityDepth_m > 1e-6);
+    if hasConcaveAft
+        xRim = sd.XProfile(end);
+        rBaseSq = sd.RBase_m^2;
+    end
+    if opts.IncludeEdgeDiffraction
+        rimData = waverider.rcs.buildRimPTDEdges(V, F, patchID, faceNormals, hasConcaveAft);
+    else
+        rimData = struct('count', 0);
+    end
 
     % Down-range grid: fine enough to sample the PSF (<= dR/8)
     maxSpan = max(abs(V(:, 2)));
@@ -122,13 +146,79 @@ function rtiData = computeRangeProfile(body, freqGHz, bandwidthMHz, azVecDeg, el
         R_waveriderBase_m(iAz) = -([body.Config.Length, 0, 0] - rRef) * u.';
         R_aftBase_m(iAz)       = -([xMax, 0, 0] - rRef) * u.';
 
-        % 1. Single-bounce PO scattering centres (zero in HV/VH/OP/LL channels)
+        % 1. Single-bounce PO + optional PTD base-rim scattering centres
+        aS = zeros(0, 1);
+        RS = zeros(0, 1);
         if hasSingleBouncePol
             cosTh = faceNormals * u.';
-            lit = find(cosTh > 0);
-            Ilit = waverider.rcs.facetPhaseIntegral(v1(lit, :), v2(lit, :), v3(lit, :), faceNormals(lit, :), 2.0 * k0 .* u);
-            aS = (1i * k0 / sqrt(pi)) .* cosTh(lit) .* Ilit;
-            RS = -(faceCenters(lit, :) - rRef) * u.';
+            litMask = cosTh > 0;
+            if hasConcaveAft
+                if u(1) <= 1e-7
+                    litMask(isBase) = false;
+                else
+                    dxAp = xRim - faceCenters(:, 1);
+                    tAp = dxAp ./ u(1);
+                    rSqAp = (faceCenters(:, 2) + tAp .* u(2)).^2 + (faceCenters(:, 3) + tAp .* u(3)).^2;
+                    litMask(isBase & (dxAp > 1e-7) & (rSqAp > rBaseSq)) = false;
+                end
+            end
+            lit = find(litMask);
+            if ~isempty(lit)
+                cosL = cosTh(lit);
+                ut2 = max(1.0 - cosL.^2, 0.0);
+                small = (4.0 * k0^2 .* ut2 .* Lmax2(lit)) < 1e-4;
+                litSm = lit(small);
+                litTl = lit(~small);
+                w = 2.0 * k0 .* u;
+                uRef = rRef * u.';
+
+                if ~isempty(litSm)
+                    rcSm = faceCenters(litSm, :);
+                    aSm = (1i * k0 / sqrt(pi)) .* cosTh(litSm) .* faceAreas(litSm) .* exp(1i .* (rcSm * w.'));
+                    rSm = -(rcSm * u.' - uRef);
+                else
+                    aSm = zeros(0, 1); rSm = zeros(0, 1);
+                end
+
+                if ~isempty(litTl)
+                    scaleTl = cosTh(litTl) ./ (2.0 * sqrt(pi) .* max(1.0 - cosTh(litTl).^2, 1e-15));
+                    [a1, r1] = gordonEdgeScatter(e12(litTl, :), mid12(litTl, :), m12(litTl, :), scaleTl, u, k0, uRef);
+                    [a2, r2] = gordonEdgeScatter(e23(litTl, :), mid23(litTl, :), m23(litTl, :), scaleTl, u, k0, uRef);
+                    [a3, r3] = gordonEdgeScatter(e31(litTl, :), mid31(litTl, :), m31(litTl, :), scaleTl, u, k0, uRef);
+                    aS = [aSm; a1; a2; a3];
+                    RS = [rSm; r1; r2; r3];
+                else
+                    aS = aSm;
+                    RS = rSm;
+                end
+            end
+        end
+
+        if opts.IncludeEdgeDiffraction && rimData.count > 0
+            [~, ~, segC] = waverider.rcs.evaluateRimPTD(rimData, u, k0, eH, true);
+            segRows = segC{1};
+            if ~isempty(segRows)
+                switch polTag
+                    case {'Mean', 'PP'}
+                        aE = segRows(:, 2);
+                    case 'HH'
+                        aE = segRows(:, 3);
+                    case 'VV'
+                        aE = segRows(:, 4);
+                    case {'HV', 'VH'}
+                        aE = segRows(:, 5);
+                    case 'OP'
+                        aE = 0.5 .* (segRows(:, 3) - segRows(:, 4)) - 1i .* segRows(:, 5);
+                    case 'LL'
+                        aE = 0.5 .* (segRows(:, 3) - segRows(:, 4)) + 1i .* segRows(:, 5);
+                end
+                rE = -(real(segRows(:, 1)) - rRef * u.');
+                aS = [aS; aE]; %#ok<AGROW>
+                RS = [RS; rE]; %#ok<AGROW>
+            end
+        end
+
+        if ~isempty(aS)
             profSingle = splatAndCompress(aS, RS, rangeVec_m, kern);
         else
             profSingle = zeros(1, nR);
@@ -188,6 +278,19 @@ function rtiData = computeRangeProfile(body, freqGHz, bandwidthMHz, azVecDeg, el
     rtiData.R_waveriderBase_m  = R_waveriderBase_m;
     rtiData.R_aftBase_m        = R_aftBase_m;
     rtiData.rRef               = rRef;
+end
+
+function [ae, Re] = gordonEdgeScatter(de, rmid, me, scaleTl, u, k0, uRef)
+%GORDONEDGESCATTER Exact Stokes/Gordon triangle-edge HRRP range-bin scatterer.
+    um = me * u.';
+    x = k0 .* (de * u.');
+    s = ones(size(x));
+    nz = abs(x) > 1e-8;
+    s(nz) = sin(x(nz)) ./ x(nz);
+    s(~nz) = 1.0 - (x(~nz).^2) ./ 6.0;
+    uDotMid = rmid * u.';
+    ae = scaleTl .* um .* s .* exp(1i * 2.0 * k0 .* uDotMid);
+    Re = -(uDotMid - uRef);
 end
 
 function prof = splatAndCompress(a, R, rangeVec, kern)

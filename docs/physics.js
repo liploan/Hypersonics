@@ -1332,11 +1332,13 @@
       }
     }
 
+    let aftAperture = null;
     if (surf.isAxisymmetric) {
       const hasAftExt = cfg.frustum && cfg.flength > 0;
       const dAft = !hasAftExt && surf.rvMeta ? surf.rvMeta.aftCavityDepth_m : 0.0;
       const pAft = surf.rvMeta ? surf.rvMeta.aftCavityPower : 2.0;
-      const Nb = dAft > 0 ? Math.max(cfg.numBaseLayers, 8) : Math.max(cfg.numBaseLayers, 3);
+      const Nb = dAft > 0 ? Math.max(cfg.numBaseLayers, 24) : Math.max(cfg.numBaseLayers, 3);
+      const pGrid = dAft > 0 ? Math.max(1.0, Math.min(pAft, 2.5)) : 1.0;
       const midCol = Math.floor(Ny / 2);
 
       // 1. Single shared nose apex pole at row 0
@@ -1369,6 +1371,14 @@
       const vid_base_low = Array.from({ length: Nb }, () => new Int32Array(Ny));
       const xRim = X_up[NxTotal - 1][midCol];
       const zCenterAft = 0.5 * (Z_up[NxTotal - 1][midCol] + Z_low[NxTotal - 1][midCol]);
+      if (dAft > 1e-6 && surf.rvMeta) {
+        aftAperture = {
+          active: true,
+          xRim,
+          zCenter: zCenterAft,
+          rBaseSq: surf.rvMeta.rBase_m * surf.rvMeta.rBase_m
+        };
+      }
 
       for (let k = 0; k < Ny; k++) {
         vid_base_up[0][k] = vid_up[NxTotal - 1][k];
@@ -1382,7 +1392,7 @@
       }
 
       for (let m = 1; m < Nb - 1; m++) {
-        const u = 1.0 - m / (Nb - 1);
+        const u = Math.pow(1.0 - m / (Nb - 1), 1.0 / pGrid);
         const xRing = dAft > 0 ? xRim - dAft * (1.0 - Math.pow(u, pAft)) : xRim;
         const vBL = addVertex(xRing, u * Y_up[NxTotal - 1][0], zCenterAft + u * (Z_up[NxTotal - 1][0] - zCenterAft));
         const vBR = addVertex(xRing, u * Y_up[NxTotal - 1][Ny - 1], zCenterAft + u * (Z_up[NxTotal - 1][Ny - 1] - zCenterAft));
@@ -1485,6 +1495,8 @@
     const poGeom = {
       nF,
       nV,
+      facePatch: Int32Array.from(facePatch),
+      aftAperture,
       vx: new Float64Array(nV), vy: new Float64Array(nV), vz: new Float64Array(nV),
       f1: new Int32Array(nF), f2: new Int32Array(nF), f3: new Int32Array(nF),
       uDotV: new Float64Array(nV), cosV: new Float64Array(nV), sinV: new Float64Array(nV),
@@ -1643,6 +1655,9 @@
       ? buildAxisymmetricConcaveSuperCells(surf.rvMeta, cfg.frustum && cfg.flength > 0)
       : buildConcaveSuperCells(X_low, Y_low, Z_low, NxWave, Ny);
 
+    // Precompute Base-Rim Wedge Edges for Polarimetric Ufimtsev/Mitzner PTD Edge Diffraction
+    const rimEdges = buildRimPTDEdges(vertices, faces, facePatch, faceNormals, Boolean(aftAperture && aftAperture.active));
+
     // Precompute Aero Cache & Design-Point (alpha = 0) Metrics
     const aeroCache = buildAeroCache({
       cfg, faces, facePatch, faceCpDesign, crossVecs, faceNormals, faceCenters,
@@ -1679,6 +1694,7 @@
       CD_base_est: aero0.CD_base_est,
       LD_viscous_est: aero0.LD_viscous_est,
       Cm: aero0.Cm,
+      rimEdges,
       concaveData,
       concavePairs: concaveData.rayPairs,
       totalConcavePairs: concaveData.numPairs
@@ -1888,13 +1904,27 @@
   function prepareLitPOGeometry(g, ux, uy, uz) {
     const nF = g.nF;
     const stamp = ++g.stampCounter;
-    const { nx, ny, nz, f1, f2, f3, vx, vy, vz, vStamp, uDotV, litVerts, litFaces, cosLit, ut2Lit, m1x, m1y, m1z, m2x, m2y, m2z, m3x, m3y, m3z, um1Lit, um2Lit, um3Lit } = g;
+    const { nx, ny, nz, f1, f2, f3, vx, vy, vz, vStamp, uDotV, litVerts, litFaces, cosLit, ut2Lit, m1x, m1y, m1z, m2x, m2y, m2z, m3x, m3y, m3z, um1Lit, um2Lit, um3Lit, facePatch, rcx, rcy, rcz, aftAperture } = g;
+    const hasAp = Boolean(aftAperture && aftAperture.active && facePatch);
+    const xRim = hasAp ? aftAperture.xRim : 0.0;
+    const zApCtr = hasAp ? aftAperture.zCenter : 0.0;
+    const rBaseSq = hasAp ? aftAperture.rBaseSq : 0.0;
     let nLit = 0;
     let nLV = 0;
 
     for (let f = 0; f < nF; f++) {
       const cTh = nx[f] * ux + ny[f] * uy + nz[f] * uz;
       if (cTh <= 0.0) continue;
+      if (hasAp && facePatch[f] === 3) {
+        if (ux <= 1e-7) continue;
+        const dxAp = xRim - rcx[f];
+        if (dxAp > 1e-7) {
+          const tAp = dxAp / ux;
+          const yAp = rcy[f] + tAp * uy;
+          const zAp = rcz[f] - zApCtr + tAp * uz;
+          if (yAp * yAp + zAp * zAp > rBaseSq) continue;
+        }
+      }
       litFaces[nLit] = f;
       cosLit[nLit] = cTh;
       ut2Lit[nLit] = Math.max(1.0 - cTh * cTh, 0.0);
@@ -1945,14 +1975,32 @@
 
       const ut2 = ut2Lit[idx];
       const wt2 = fourK2 * ut2;
-      let IRe, IIm;
+      const scale = pref * cosLit[idx];
+      let aRe, aIm;
 
       if (wt2 * Lmax2[f] < 1e-4) {
         // |w_t| L_max < 0.01 -> 3-vertex average is exact to < 1.7e-5 (0.00014 dB) with zero trig calls
         const A3 = area[f] / 3.0;
-        IRe = A3 * (c1 + c2 + c3);
-        IIm = A3 * (s1 + s2 + s3);
+        const IRe = A3 * (c1 + c2 + c3);
+        const IIm = A3 * (s1 + s2 + s3);
+        aRe = -scale * IIm;
+        aIm = scale * IRe;
+        if (splat) {
+          const uDotRc = (uDotV[i1] + uDotV[i2] + uDotV[i3]) * (1.0 / 3.0);
+          const RS = -(uDotRc - xRefProj);
+          const fBin = (RS + rLim) * invDBin;
+          const i0 = Math.floor(fBin);
+          if (i0 >= 0 && i0 < nR - 1) {
+            const t = fBin - i0;
+            accRe[i0] += aRe * (1.0 - t);
+            accIm[i0] += aIm * (1.0 - t);
+            accRe[i0 + 1] += aRe * t;
+            accIm[i0 + 1] += aIm * t;
+          }
+        }
       } else {
+        // Exact Stokes/Gordon 3-edge contour sum; symmetric midpoint expansion for |d| < 1e-3
+        // guarantees bitwise interior-edge cancellation on coplanar plates in wideband HRRP!
         const d12 = twoK * (uDotV[i2] - uDotV[i1]);
         let j1Re, j1Im;
         if (d12 >= 1e-3 || d12 <= -1e-3) {
@@ -1960,11 +2008,9 @@
           j1Re = (s2 - s1) * inv;
           j1Im = (c1 - c2) * inv;
         } else {
-          const d2 = d12 * d12;
-          const al = 1.0 - d2 * (1.0 / 6.0);
-          const be = 0.5 * d12 * (1.0 - d2 * (1.0 / 12.0));
-          j1Re = al * c1 - be * s1;
-          j1Im = al * s1 + be * c1;
+          const fac = 0.5 * (1.0 + d12 * d12 * (1.0 / 12.0));
+          j1Re = fac * (c1 + c2);
+          j1Im = fac * (s1 + s2);
         }
 
         const d23 = twoK * (uDotV[i3] - uDotV[i2]);
@@ -1974,11 +2020,9 @@
           j2Re = (s3 - s2) * inv;
           j2Im = (c2 - c3) * inv;
         } else {
-          const d2 = d23 * d23;
-          const al = 1.0 - d2 * (1.0 / 6.0);
-          const be = 0.5 * d23 * (1.0 - d2 * (1.0 / 12.0));
-          j2Re = al * c2 - be * s2;
-          j2Im = al * s2 + be * c2;
+          const fac = 0.5 * (1.0 + d23 * d23 * (1.0 / 12.0));
+          j2Re = fac * (c2 + c3);
+          j2Im = fac * (s2 + s3);
         }
 
         const d31 = twoK * (uDotV[i1] - uDotV[i3]);
@@ -1988,40 +2032,49 @@
           j3Re = (s1 - s3) * inv;
           j3Im = (c3 - c1) * inv;
         } else {
-          const d2 = d31 * d31;
-          const al = 1.0 - d2 * (1.0 / 6.0);
-          const be = 0.5 * d31 * (1.0 - d2 * (1.0 / 12.0));
-          j3Re = al * c3 - be * s3;
-          j3Im = al * s3 + be * c3;
+          const fac = 0.5 * (1.0 + d31 * d31 * (1.0 / 12.0));
+          j3Re = fac * (c3 + c1);
+          j3Im = fac * (s3 + s1);
         }
 
         const um1 = um1Lit[idx], um2 = um2Lit[idx], um3 = um3Lit[idx];
-        const sRe = um1 * j1Re + um2 * j2Re + um3 * j3Re;
-        const sIm = um1 * j1Im + um2 * j2Im + um3 * j3Im;
-        const invDen = 1.0 / (twoK * ut2);
-        IRe = sIm * invDen;
-        IIm = -sRe * invDen;
-      }
+        const edgeScale = scale / (twoK * ut2);
+        const e1Re = edgeScale * um1 * j1Re, e1Im = edgeScale * um1 * j1Im;
+        const e2Re = edgeScale * um2 * j2Re, e2Im = edgeScale * um2 * j2Im;
+        const e3Re = edgeScale * um3 * j3Re, e3Im = edgeScale * um3 * j3Im;
+        aRe = e1Re + e2Re + e3Re;
+        aIm = e1Im + e2Im + e3Im;
 
-      const scale = pref * cosLit[idx];
-      const aRe = -scale * IIm;
-      const aIm = scale * IRe;
-      reSingle += aRe;
-      imSingle += aIm;
-
-      if (splat) {
-        const uDotRc = (uDotV[i1] + uDotV[i2] + uDotV[i3]) * (1.0 / 3.0);
-        const RS = -(uDotRc - xRefProj);
-        const fBin = (RS + rLim) * invDBin;
-        const i0 = Math.floor(fBin);
-        if (i0 >= 0 && i0 < nR - 1) {
-          const t = fBin - i0;
-          accRe[i0] += aRe * (1.0 - t);
-          accIm[i0] += aIm * (1.0 - t);
-          accRe[i0 + 1] += aRe * t;
-          accIm[i0 + 1] += aIm * t;
+        if (splat) {
+          const r1 = -(0.5 * (uDotV[i1] + uDotV[i2]) - xRefProj);
+          const fB1 = (r1 + rLim) * invDBin;
+          const k1 = Math.floor(fB1);
+          if (k1 >= 0 && k1 < nR - 1) {
+            const t = fB1 - k1;
+            accRe[k1] += e1Re * (1.0 - t); accIm[k1] += e1Im * (1.0 - t);
+            accRe[k1 + 1] += e1Re * t;     accIm[k1 + 1] += e1Im * t;
+          }
+          const r2 = -(0.5 * (uDotV[i2] + uDotV[i3]) - xRefProj);
+          const fB2 = (r2 + rLim) * invDBin;
+          const k2 = Math.floor(fB2);
+          if (k2 >= 0 && k2 < nR - 1) {
+            const t = fB2 - k2;
+            accRe[k2] += e2Re * (1.0 - t); accIm[k2] += e2Im * (1.0 - t);
+            accRe[k2 + 1] += e2Re * t;     accIm[k2 + 1] += e2Im * t;
+          }
+          const r3 = -(0.5 * (uDotV[i3] + uDotV[i1]) - xRefProj);
+          const fB3 = (r3 + rLim) * invDBin;
+          const k3 = Math.floor(fB3);
+          if (k3 >= 0 && k3 < nR - 1) {
+            const t = fB3 - k3;
+            accRe[k3] += e3Re * (1.0 - t); accIm[k3] += e3Im * (1.0 - t);
+            accRe[k3 + 1] += e3Re * t;     accIm[k3 + 1] += e3Im * t;
+          }
         }
       }
+
+      reSingle += aRe;
+      imSingle += aIm;
     }
 
     _poSumOut[0] = reSingle;
@@ -2172,7 +2225,7 @@
       cellRadius,
       pIdx,
       qIdx,
-      dirP, dirQ,
+      dirP, dirQ, dirGroup: null, aftAperture: null,
       pRx, pRy, pRz, pNx, pNy, pNz,
       qRx, qRy, qRz, qNx, qNy, qNz,
       pRad, qRad,
@@ -2252,15 +2305,18 @@
       cellEr.push([0.0, Math.sin(phMid), Math.cos(phMid)]);
     }
 
+    let aftAperture = null;
     if (hasConcaveAft) {
       const R_b = rvMeta.rBase_m;
       const L_aft = rvMeta.xProfile[rvMeta.xProfile.length - 1];
       const dAft = rvMeta.aftCavityDepth_m;
       const pAft = rvMeta.aftCavityPower;
+      const pGrid = Math.max(1.0, Math.min(pAft, 2.5));
+      aftAperture = { active: true, xRim: L_aft, zCenter: 0.0, rBaseSq: R_b * R_b };
       const nRad = 6;
       for (let r = 0; r < nRad; r++) {
-        const u1 = 1.0 - ((1.0 - 0.06) * r) / nRad;
-        const u2 = 1.0 - ((1.0 - 0.06) * (r + 1)) / nRad;
+        const u1 = Math.pow(1.0 - ((1.0 - 0.04) * r) / nRad, 1.0 / pGrid);
+        const u2 = Math.pow(1.0 - ((1.0 - 0.04) * (r + 1)) / nRad, 1.0 / pGrid);
         const x1 = L_aft - dAft * (1.0 - Math.pow(u1, pAft));
         const x2 = L_aft - dAft * (1.0 - Math.pow(u2, pAft));
         for (let c = 0; c < nPhi; c++) {
@@ -2345,6 +2401,7 @@
     const nDir = 2 * nUndir;
     const dirP = new Int32Array(nDir);
     const dirQ = new Int32Array(nDir);
+    const dirGroup = new Int32Array(nDir);
     const pRx = new Float64Array(nDir), pRy = new Float64Array(nDir), pRz = new Float64Array(nDir);
     const pNx = new Float64Array(nDir), pNy = new Float64Array(nDir), pNz = new Float64Array(nDir);
     const qRx = new Float64Array(nDir), qRy = new Float64Array(nDir), qRz = new Float64Array(nDir);
@@ -2357,6 +2414,7 @@
     }
     for (let m = 0; m < nDir; m++) {
       const P = dirP[m], Q = dirQ[m];
+      dirGroup[m] = cellGroup[P];
       pRx[m] = cellCenter[P][0]; pRy[m] = cellCenter[P][1]; pRz[m] = cellCenter[P][2];
       pNx[m] = cellNormal[P][0]; pNy[m] = cellNormal[P][1]; pNz[m] = cellNormal[P][2];
       qRx[m] = cellCenter[Q][0]; qRy[m] = cellCenter[Q][1]; qRz[m] = cellCenter[Q][2];
@@ -2374,7 +2432,7 @@
       cellRadius,
       pIdx,
       qIdx,
-      dirP, dirQ,
+      dirP, dirQ, dirGroup, aftAperture,
       pRx, pRy, pRz, pNx, pNy, pNz,
       qRx, qRy, qRz, qNx, qNy, qNz,
       pRad, qRad,
@@ -2568,13 +2626,28 @@
    */
   function collectDoubleBouncePatches(cp, ux, uy, uz, azRadOpt) {
     if (!cp || cp.numPairs === 0) return [];
-    const { cellNormal, cellVerts, dirP, dirQ, pRx, pRy, pRz, pNx, pNy, pNz, qRx, qRy, qRz, qNx, qNy, qNz, pRad, qRad } = cp;
+    const { cellNormal, cellVerts, dirP, dirQ, dirGroup, aftAperture, pRx, pRy, pRz, pNx, pNy, pNz, qRx, qRy, qRz, qNx, qNy, qNz, pRad, qRad } = cp;
+    const hasAp = Boolean(aftAperture && aftAperture.active && dirGroup);
+    const xRim = hasAp ? aftAperture.xRim : 0.0;
+    const zApCtr = hasAp ? aftAperture.zCenter : 0.0;
+    const rBaseSq = hasAp ? aftAperture.rBaseSq : 0.0;
     const nDir = dirP.length;
     const kix = -ux, kiy = -uy, kiz = -uz;
     const [eHx, eHy, eHz, eVx, eVy, eVz] = computePolarizationBasis(ux, uy, uz, azRadOpt);
     const patches = [];
 
     for (let m = 0; m < nDir; m++) {
+      const isAftCav = hasAp && dirGroup[m] === 1;
+      if (isAftCav) {
+        if (ux <= 1e-7) continue;
+        const dxP = xRim - pRx[m];
+        if (dxP > 1e-7) {
+          const tP = dxP / ux;
+          const yP = pRy[m] + tP * uy;
+          const zP = pRz[m] - zApCtr + tP * uz;
+          if (yP * yP + zP * zP > rBaseSq) continue;
+        }
+      }
       const cosP = pNx[m] * ux + pNy[m] * uy + pNz[m] * uz;
       if (cosP <= 1e-6) continue;
 
@@ -2658,6 +2731,15 @@
 
       const invA = 1.0 / Math.max(sumA, 1e-15);
       const rOx = ox * invA, rOy = oy * invA, rOz = oz * invA;
+      if (isAftCav) {
+        const dxO = xRim - rOx;
+        if (dxO > 1e-7) {
+          const tO = dxO / ux;
+          const yO = rOy + tO * uy;
+          const zO = rOz - zApCtr + tO * uz;
+          if (yO * yO + zO * zO > rBaseSq) continue;
+        }
+      }
       const cPath = (kix - krx) * pRx[m] + (kiy - kry) * pRy[m] + (kiz - krz) * pRz[m];
       const dkx = ux - krx, dky = uy - kry, dkz = uz - krz;
       const nQdk = nQx * dkx + nQy * dky + nQz * dkz;
@@ -2793,15 +2875,234 @@
     return evaluatePatchesAtK(patches, k0, wantContrib);
   }
 
+  const _ZERO_PTD = Object.freeze({
+    re: 0.0, im: 0.0,
+    hhRe: 0.0, hhIm: 0.0,
+    vvRe: 0.0, vvIm: 0.0,
+    hvRe: 0.0, hvIm: 0.0
+  });
+
   /**
-   * Assemble single-bounce PO + GO-PO double-bounce into the requested polarization channel
-   * plus the complete linear/circular polarimetric dictionary.
+   * Extract exterior sharp base-perimeter wedge edges shared between skin (facePatch != 3)
+   * and aft base (facePatch == 3) for polarimetric Ufimtsev/Mitzner PTD fringe diffraction.
    */
-  function assemblePolarimetricPoint(rePO, imPO, mb, polTag, noiseFloor = 1e-5) {
-    const sMeanRe = rePO + mb.re,   sMeanIm = imPO + mb.im;
-    const sHHRe   = rePO + mb.hhRe, sHHIm   = imPO + mb.hhIm;
-    const sVVRe   = rePO + mb.vvRe, sVVIm   = imPO + mb.vvIm;
-    const sHVRe   = mb.hvRe,        sHVIm   = mb.hvIm;
+  function buildRimPTDEdges(vertices, faces, facePatch, faceNormals, hasConcaveAft = false) {
+    if (!facePatch || faces.length === 0) return { count: 0, hasConcaveAft: false };
+    const edgeMap = new Map();
+    for (let f = 0; f < faces.length; f++) {
+      const [i0, i1, i2] = faces[f];
+      const isBase = facePatch[f] === 3;
+      const pairs = [[i0, i1, i2], [i1, i2, i0], [i2, i0, i1]];
+      for (let e = 0; e < 3; e++) {
+        const u = pairs[e][0], v = pairs[e][1], ic = pairs[e][2];
+        const key = u < v ? `${u}_${v}` : `${v}_${u}`;
+        let rec = edgeMap.get(key);
+        if (!rec) {
+          rec = { ia: u, ib: v, fSkin: -1, icSkin: -1, fBase: -1, icBase: -1 };
+          edgeMap.set(key, rec);
+        }
+        if (isBase) {
+          rec.fBase = f;
+          rec.icBase = ic;
+        } else {
+          rec.fSkin = f;
+          rec.icSkin = ic;
+        }
+      }
+    }
+
+    const edges = [];
+    for (const rec of edgeMap.values()) {
+      if (rec.fSkin < 0 || rec.fBase < 0) continue;
+      const va = vertices[rec.ia], vb = vertices[rec.ib];
+      const vc1 = vertices[rec.icSkin], vc2 = vertices[rec.icBase];
+      const rex = 0.5 * (va[0] + vb[0]), rey = 0.5 * (va[1] + vb[1]), rez = 0.5 * (va[2] + vb[2]);
+      const dex = vb[0] - va[0], dey = vb[1] - va[1], dez = vb[2] - va[2];
+      const len = Math.hypot(dex, dey, dez);
+      if (len < 1e-9) continue;
+
+      const n1 = faceNormals[rec.fSkin];
+      const n2 = faceNormals[rec.fBase];
+      // Strict exterior convex wedge test: Face 2's interior vertex must lie behind Face 1's plane
+      const convCheck = (vc2[0] - rex) * n1[0] + (vc2[1] - rey) * n1[1] + (vc2[2] - rez) * n1[2];
+      if (convCheck >= -1e-9) continue;
+
+      const cos12 = Math.max(-1.0, Math.min(1.0, n1[0] * n2[0] + n1[1] * n2[1] + n1[2] * n2[2]));
+      const nWedge = 1.0 + Math.acos(cos12) / Math.PI;
+      if (nWedge <= 1.02) continue;
+
+      const dx = dex / len, dy = dey / len, dz = dez / len;
+      // q1 = n1 x dHat lies in Face 1 perpendicular to the edge
+      const q1x = n1[1] * dz - n1[2] * dy;
+      const q1y = n1[2] * dx - n1[0] * dz;
+      const q1z = n1[0] * dy - n1[1] * dx;
+      const sgn = ((vc1[0] - rex) * q1x + (vc1[1] - rey) * q1y + (vc1[2] - rez) * q1z) >= 0.0 ? 1.0 : -1.0;
+
+      // Right-handed wedge basis: tau1 x n1 = tHat, Face 1 at phi = 0, exterior in (0, n*pi)
+      const tau1x = sgn * q1x, tau1y = sgn * q1y, tau1z = sgn * q1z;
+      const tx = sgn * dx, ty = sgn * dy, tz = sgn * dz;
+
+      const Xwedge = -1.0 / (nWedge * Math.tan(Math.PI / (2.0 * nWedge)));
+      const sinPiOverN = Math.sin(Math.PI / nWedge) / nWedge;
+      const cosPiOverN = Math.cos(Math.PI / nWedge);
+      const poleRes = -0.5 / (nWedge * Math.tan(Math.PI / nWedge));
+
+      edges.push({
+        rex, rey, rez, len,
+        tx, ty, tz,
+        tau1x, tau1y, tau1z,
+        n1x: n1[0], n1y: n1[1], n1z: n1[2],
+        n2x: n2[0], n2y: n2[1], n2z: n2[2],
+        nWedge, nPi: nWedge * Math.PI,
+        Xwedge, sinPiOverN, cosPiOverN, poleRes
+      });
+    }
+
+    return { count: edges.length, hasConcaveAft, edges };
+  }
+
+  /**
+   * Singularity-free polarimetric Ufimtsev/Mitzner ILDC monostatic PTD fringe evaluator
+   * across all sharp aft base-rim wedge segments (and optional HRRP range bin deposition).
+   */
+  function evaluateRimPTD(rimData, ux, uy, uz, k0, azRadOpt, splatOpts = null) {
+    if (!rimData || rimData.count === 0) return _ZERO_PTD;
+    const edges = rimData.edges;
+    const hasConcaveAft = rimData.hasConcaveAft;
+    const [eHx, eHy, eHz, eVx, eVy, eVz] = computePolarizationBasis(ux, uy, uz, azRadOpt);
+    const SQRT_PI = Math.sqrt(Math.PI);
+    const HALF_PI = 0.5 * Math.PI;
+
+    let re = 0.0, im = 0.0;
+    let hhRe = 0.0, hhIm = 0.0;
+    let vvRe = 0.0, vvIm = 0.0;
+    let hvRe = 0.0, hvIm = 0.0;
+
+    const doSplat = splatOpts !== null;
+    const polTag = doSplat ? splatOpts.polTag : "";
+    const accRe = doSplat ? splatOpts.accRe : null;
+    const accIm = doSplat ? splatOpts.accIm : null;
+    const xRefProj = doSplat ? ux * splatOpts.xRef : 0.0;
+    const rLim = doSplat ? splatOpts.rLim : 0.0;
+    const invDBin = doSplat ? splatOpts.invDBin : 0.0;
+    const nR = doSplat ? splatOpts.nR : 0;
+
+    for (let i = 0; i < edges.length; i++) {
+      const ed = edges[i];
+      const lit1 = (ed.n1x * ux + ed.n1y * uy + ed.n1z * uz) > 1e-9;
+      const lit2 = ((ed.n2x * ux + ed.n2y * uy + ed.n2z * uz) > 1e-9) && (!hasConcaveAft || ux > 1e-7);
+      if (!lit1 && !lit2) continue;
+
+      const tu = ed.tx * ux + ed.ty * uy + ed.tz * uz;
+      const sinB2 = 1.0 - tu * tu;
+      if (sinB2 < 1e-6) continue;
+      const sinB = Math.sqrt(sinB2);
+      const invSinB = 1.0 / sinB;
+
+      const upx = (ux - tu * ed.tx) * invSinB;
+      const upy = (uy - tu * ed.ty) * invSinB;
+      const upz = (uz - tu * ed.tz) * invSinB;
+
+      const xw = upx * ed.tau1x + upy * ed.tau1y + upz * ed.tau1z;
+      const yw = upx * ed.n1x + upy * ed.n1y + upz * ed.n1z;
+      let phi = Math.atan2(yw, xw);
+      if (phi < 0.0) phi += 2.0 * Math.PI;
+      if (phi <= 1e-5 || phi >= ed.nPi - 1e-5) continue;
+
+      const phi2 = ed.nPi - phi;
+      let Yf;
+      if (Math.abs(phi - HALF_PI) < 1e-5) {
+        Yf = ed.poleRes - (lit2 && phi2 > 0.0 && phi2 < Math.PI ? -0.5 * Math.tan(phi2) : 0.0);
+      } else if (lit2 && Math.abs(phi2 - HALF_PI) < 1e-5) {
+        Yf = ed.poleRes - (phi > 0.0 && phi < Math.PI ? -0.5 * Math.tan(phi) : 0.0);
+      } else {
+        const symSum = ed.sinPiOverN / (ed.cosPiOverN - Math.cos((2.0 * phi) / ed.nWedge));
+        const po1 = phi > 0.0 && phi < Math.PI ? -0.5 * Math.tan(phi) : 0.0;
+        const po2 = lit2 && phi2 > 0.0 && phi2 < Math.PI ? -0.5 * Math.tan(phi2) : 0.0;
+        Yf = symSum - po1 - po2;
+      }
+
+      const fs = Yf - ed.Xwedge;
+      const fh = Yf + ed.Xwedge;
+
+      const hPar = (eHx * ed.tx + eHy * ed.ty + eHz * ed.tz) * invSinB;
+      const vPar = (eVx * ed.tx + eVy * ed.ty + eVz * ed.tz) * invSinB;
+      const hPar2 = hPar * hPar;
+      const vPar2 = vPar * vPar;
+
+      const wHH = fs * hPar2 + fh * vPar2;
+      const wVV = fs * vPar2 + fh * hPar2;
+      const wHV = (fs - fh) * hPar * vPar;
+
+      const xSinc = k0 * ed.len * tu;
+      const sincVal = Math.abs(xSinc) > 1e-8 ? Math.sin(xSinc) / xSinc : 1.0 - (xSinc * xSinc) / 6.0;
+      const ampE = ((ed.len * sinB) / SQRT_PI) * sincVal;
+      const uDotRe = ed.rex * ux + ed.rey * uy + ed.rez * uz;
+      const ph = 2.0 * k0 * uDotRe;
+      const eRe = ampE * Math.cos(ph);
+      const eIm = ampE * Math.sin(ph);
+
+      const mRe = eRe * Yf,  mIm = eIm * Yf;
+      const hRe = eRe * wHH, hIm = eIm * wHH;
+      const vRe = eRe * wVV, vIm = eIm * wVV;
+      const cRe = eRe * wHV, cIm = eIm * wHV;
+
+      re += mRe;   im += mIm;
+      hhRe += hRe; hhIm += hIm;
+      vvRe += vRe; vvIm += vIm;
+      hvRe += cRe; hvIm += cIm;
+
+      if (doSplat) {
+        let sRe = 0.0, sIm = 0.0;
+        switch (polTag) {
+          case "Mean":
+          case "PP":
+            sRe = mRe; sIm = mIm;
+            break;
+          case "HH":
+            sRe = hRe; sIm = hIm;
+            break;
+          case "VV":
+            sRe = vRe; sIm = vIm;
+            break;
+          case "HV":
+          case "VH":
+            sRe = cRe; sIm = cIm;
+            break;
+          case "OP":
+            sRe = 0.5 * (hRe - vRe) + cIm;
+            sIm = 0.5 * (hIm - vIm) - cRe;
+            break;
+          case "LL":
+            sRe = 0.5 * (hRe - vRe) - cIm;
+            sIm = 0.5 * (hIm - vIm) + cRe;
+            break;
+        }
+        const RS = -(uDotRe - xRefProj);
+        const fBin = (RS + rLim) * invDBin;
+        const i0 = Math.floor(fBin);
+        if (i0 >= 0 && i0 < nR - 1) {
+          const t = fBin - i0;
+          accRe[i0] += sRe * (1.0 - t);
+          accIm[i0] += sIm * (1.0 - t);
+          accRe[i0 + 1] += sRe * t;
+          accIm[i0 + 1] += sIm * t;
+        }
+      }
+    }
+
+    return { re, im, hhRe, hhIm, vvRe, vvIm, hvRe, hvIm };
+  }
+
+  /**
+   * Assemble single-bounce PO + optional PTD rim fringe + GO-PO double-bounce into the
+   * requested polarization channel plus the complete linear/circular polarimetric dictionary.
+   */
+  function assemblePolarimetricPoint(rePO, imPO, mb, polTag, noiseFloor = 1e-5, ptd = _ZERO_PTD) {
+    const sMeanRe = rePO + ptd.re + mb.re,     sMeanIm = imPO + ptd.im + mb.im;
+    const sHHRe   = rePO + ptd.hhRe + mb.hhRe, sHHIm   = imPO + ptd.hhIm + mb.hhIm;
+    const sVVRe   = rePO + ptd.vvRe + mb.vvRe, sVVIm   = imPO + ptd.vvIm + mb.vvIm;
+    const sHVRe   = ptd.hvRe + mb.hvRe,        sHVIm   = ptd.hvIm + mb.hvIm;
     const sPPRe   = 0.5 * (sHHRe + sVVRe), sPPIm = 0.5 * (sHHIm + sVVIm);
     const sOPRe   = 0.5 * (sHHRe - sVVRe) + sHVIm, sOPIm = 0.5 * (sHHIm - sVVIm) - sHVRe;
     const sLLRe   = 0.5 * (sHHRe - sVVRe) - sHVIm, sLLIm = 0.5 * (sHHIm - sVVIm) + sHVRe;
@@ -2809,29 +3110,32 @@
     let reSingle = 0.0, imSingle = 0.0, reMB = 0.0, imMB = 0.0;
     switch (polTag) {
       case "Mean":
-        reSingle = rePO; imSingle = imPO; reMB = mb.re; imMB = mb.im;
+        reSingle = rePO + ptd.re; imSingle = imPO + ptd.im; reMB = mb.re; imMB = mb.im;
         break;
       case "HH":
-        reSingle = rePO; imSingle = imPO; reMB = mb.hhRe; imMB = mb.hhIm;
+        reSingle = rePO + ptd.hhRe; imSingle = imPO + ptd.hhIm; reMB = mb.hhRe; imMB = mb.hhIm;
         break;
       case "VV":
-        reSingle = rePO; imSingle = imPO; reMB = mb.vvRe; imMB = mb.vvIm;
+        reSingle = rePO + ptd.vvRe; imSingle = imPO + ptd.vvIm; reMB = mb.vvRe; imMB = mb.vvIm;
         break;
       case "HV":
       case "VH":
-        reSingle = 0.0; imSingle = 0.0; reMB = mb.hvRe; imMB = mb.hvIm;
+        reSingle = ptd.hvRe; imSingle = ptd.hvIm; reMB = mb.hvRe; imMB = mb.hvIm;
         break;
       case "PP":
-        reSingle = rePO; imSingle = imPO;
+        reSingle = rePO + 0.5 * (ptd.hhRe + ptd.vvRe);
+        imSingle = imPO + 0.5 * (ptd.hhIm + ptd.vvIm);
         reMB = 0.5 * (mb.hhRe + mb.vvRe); imMB = 0.5 * (mb.hhIm + mb.vvIm);
         break;
       case "OP":
-        reSingle = 0.0; imSingle = 0.0;
+        reSingle = 0.5 * (ptd.hhRe - ptd.vvRe) + ptd.hvIm;
+        imSingle = 0.5 * (ptd.hhIm - ptd.vvIm) - ptd.hvRe;
         reMB = 0.5 * (mb.hhRe - mb.vvRe) + mb.hvIm;
         imMB = 0.5 * (mb.hhIm - mb.vvIm) - mb.hvRe;
         break;
       case "LL":
-        reSingle = 0.0; imSingle = 0.0;
+        reSingle = 0.5 * (ptd.hhRe - ptd.vvRe) - ptd.hvIm;
+        imSingle = 0.5 * (ptd.hhIm - ptd.vvIm) + ptd.hvRe;
         reMB = 0.5 * (mb.hhRe - mb.vvRe) - mb.hvIm;
         imMB = 0.5 * (mb.hhIm - mb.vvIm) + mb.hvRe;
         break;
@@ -2879,8 +3183,9 @@
    * Evaluate coherent monostatic RCS across multiple frequencies at one (azDeg, elDeg)
    * while sharing vertex projections, polygon clipping, and polarimetric weights across bands!
    */
-  function evaluateRCSMultiFreq(model, freqGHzArray, azDeg, elDeg, includeMB = true, pol = "Mean") {
+  function evaluateRCSMultiFreq(model, freqGHzArray, azDeg, elDeg, includeMB = true, pol = "Mean", opts = null) {
     const polTag = normalizePolarization(pol);
+    const includePTD = Boolean(opts && opts.includeEdgeDiffraction);
     const az = azDeg * DEG2RAD;
     const el = elDeg * DEG2RAD;
     const ux = -Math.cos(el) * Math.cos(az);
@@ -2901,16 +3206,20 @@
       evaluateLitPOAtK(g, nLit, nLV, k0);
       const rePO = _poSumOut[0];
       const imPO = _poSumOut[1];
+      const ptd = (includePTD && model.rimEdges && model.rimEdges.count > 0)
+        ? evaluateRimPTD(model.rimEdges, ux, uy, uz, k0, az, null)
+        : _ZERO_PTD;
       const mb = patches.length > 0 ? evaluatePatchesAtK(patches, k0, false) : _ZERO_MB;
-      return assemblePolarimetricPoint(rePO, imPO, mb, polTag, noiseFloor);
+      return assemblePolarimetricPoint(rePO, imPO, mb, polTag, noiseFloor, ptd);
     });
   }
 
   /**
-   * Evaluate coherent monostatic RCS (PO + optional GO-PO double-bounce) at (freqGHz, azDeg, elDeg, pol).
+   * Evaluate coherent monostatic RCS (PO + optional PTD rim fringe + optional GO-PO double-bounce).
    */
-  function evaluateRCSDirection(model, freqGHz, azDeg, elDeg, includeMB = true, pol = "Mean") {
+  function evaluateRCSDirection(model, freqGHz, azDeg, elDeg, includeMB = true, pol = "Mean", opts = null) {
     const polTag = normalizePolarization(pol);
+    const includePTD = Boolean(opts && opts.includeEdgeDiffraction);
     const lam = (C0 * 1e-9) / freqGHz;
     const k0 = (2.0 * Math.PI) / lam;
     const az = azDeg * DEG2RAD;
@@ -2925,11 +3234,15 @@
     const rePO = _poSumOut[0];
     const imPO = _poSumOut[1];
 
+    const ptd = (includePTD && model.rimEdges && model.rimEdges.count > 0)
+      ? evaluateRimPTD(model.rimEdges, ux, uy, uz, k0, az, null)
+      : _ZERO_PTD;
+
     const mb = (includeMB && model.concaveData && model.concaveData.numPairs > 0)
       ? doubleBounceGOPO(model.concaveData, ux, uy, uz, k0, false, az)
       : _ZERO_MB;
 
-    return assemblePolarimetricPoint(rePO, imPO, mb, polTag, 1e-5);
+    return assemblePolarimetricPoint(rePO, imPO, mb, polTag, 1e-5, ptd);
   }
 
   // --------------------------------------------------------------------------
@@ -2998,9 +3311,15 @@
       kern[dk + halfK] = (a0 * nsinc(x) + a1 * (nsinc(x - 1.0) + nsinc(x + 1.0))) / a0;
     }
 
-    const azVec = opts.azVec
-      ? Array.from(opts.azVec)
-      : Array.from({ length: 61 }, (_, i) => i * 3);
+    let azVec;
+    if (opts.azVec) {
+      azVec = Array.from(opts.azVec);
+    } else {
+      azVec = [];
+      for (let a = 0; a <= 171; a += 3) azVec.push(a);
+      for (let a = 173; a <= 180; a += 1) azVec.push(a);
+    }
+    const includePTD = Boolean(opts.includeEdgeDiffraction);
     const nAz = azVec.length;
     const elRad = elDeg * DEG2RAD;
     const g = model.poGeom;
@@ -3038,6 +3357,13 @@
       if (hasSingleBouncePol) {
         const { nLit, nLV } = prepareLitPOGeometry(g, ux, uy, uz);
         evaluateLitPOAtK(g, nLit, nLV, k0, accSingleRe, accSingleIm, ux, xRef, rLim, 1.0 / dBin, nR);
+      }
+
+      // 1b. Optional polarimetric Ufimtsev/Mitzner PTD base-rim edge diffraction centers
+      if (includePTD && model.rimEdges && model.rimEdges.count > 0) {
+        evaluateRimPTD(model.rimEdges, ux, uy, uz, k0, azRad, {
+          polTag, accRe: accSingleRe, accIm: accSingleIm, xRef, rLim, invDBin: 1.0 / dBin, nR
+        });
       }
 
       // 2. GO-PO concave double-bounce scattering centers with true cavity path delay
@@ -3210,6 +3536,8 @@
     const poGeom = {
       nF,
       nV,
+      facePatch: null,
+      aftAperture: null,
       vx: new Float64Array(nV), vy: new Float64Array(nV), vz: new Float64Array(nV),
       f1: new Int32Array(nF), f2: new Int32Array(nF), f3: new Int32Array(nF),
       uDotV: new Float64Array(nV), cosV: new Float64Array(nV), sinV: new Float64Array(nV),
@@ -3281,7 +3609,7 @@
   }
 
   return {
-    VERSION: "20261113-rv",
+    VERSION: "20261113-base",
     C0,
     solveObliqueShock,
     solveTaylorMaccoll,

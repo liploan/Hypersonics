@@ -171,13 +171,16 @@ function cp = buildAxisymmetricConcavePairs(surfData)
     nCells = 0;
 
     % 1. Recessed Concave Aft Cavity Super-Cells (unobstructed convex interior void)
+    aftAperture = struct('active', false, 'xRim', 0.0, 'zCenter', 0.0, 'rBaseSq', 0.0);
     if hasConcaveAft
         R_b = surfData.RBase_m;
         L_aft = surfData.XProfile(end);
         dAft = surfData.AftCavityDepth_m;
         pAft = surfData.AftCavityPower;
+        pGrid = max(1.0, min(pAft, 2.5));
+        aftAperture = struct('active', true, 'xRim', L_aft, 'zCenter', 0.0, 'rBaseSq', R_b^2);
         nRad = 6;
-        uEdges = linspace(1.0, 0.06, nRad + 1);
+        uEdges = linspace(1.0, 0.04, nRad + 1).^(1.0 / pGrid);
 
         for r = 1:nRad
             u1 = uEdges(r);
@@ -316,6 +319,8 @@ function cp = buildAxisymmetricConcavePairs(surfData)
     cp.cellNormal = nCell;
     cp.cellArea = aCell;
     cp.cellVerts = vCell;
+    cp.cellGroup = groupCell;
+    cp.aftAperture = aftAperture;
     cp.cellRadius = zeros(nCells, 1);
     for c = 1:nCells
         cp.cellRadius(c) = max(vecnorm(squeeze(vCell(c, :, :)) - rCell(c, :), 2, 2));

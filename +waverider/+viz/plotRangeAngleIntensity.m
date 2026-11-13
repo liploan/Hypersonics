@@ -13,6 +13,7 @@ function fig = plotRangeAngleIntensity(body, varargin)
     addParameter(p, 'CutAzimuthDeg', 45.0, @isnumeric);
     addParameter(p, 'WindowType', 'hann', @(x) ischar(x) || isstring(x));
     addParameter(p, 'Polarization', 'Mean', @(x) ischar(x) || isstring(x));
+    addParameter(p, 'IncludeEdgeDiffraction', false, @islogical);
     addParameter(p, 'Visible', 'on', @(x) ischar(x) || isstring(x));
     addParameter(p, 'SavePath', '', @(x) ischar(x) || isstring(x));
     parse(p, varargin{:});
@@ -24,26 +25,34 @@ function fig = plotRangeAngleIntensity(body, varargin)
     azCut = opts.CutAzimuthDeg;
     winType = opts.WindowType;
     polIn = opts.Polarization;
+    extraArgs = {};
+    if opts.IncludeEdgeDiffraction
+        extraArgs = {'IncludeEdgeDiffraction', true};
+    end
 
-    azVec = linspace(0, 180, 121);
+    azVec = unique([0:1.5:171, 172:0.5:180]);
     pairs = waverider.rcs.buildConcavePairList(body);
 
     % Compute primary RTI at configured bandwidth
     rtiMain = waverider.rcs.computeRangeProfile(body, fc, bw, azVec, elLook, ...
         'IncludeMultiBounce', true, 'WindowType', winType, 'Polarization', polIn, ...
-        'PrecomputedConcavePairs', pairs);
+        'PrecomputedConcavePairs', pairs, extraArgs{:});
 
     % Compute multi-bandwidth HRRP cuts at azCut
     bwList = [150, 600, 2000];
     rtiLowBW  = waverider.rcs.computeRangeProfile(body, fc, bwList(1), azCut, elLook, ...
         'IncludeMultiBounce', true, 'WindowType', winType, 'Polarization', polIn, ...
-        'PrecomputedConcavePairs', pairs);
+        'PrecomputedConcavePairs', pairs, extraArgs{:});
     rtiMedBW  = waverider.rcs.computeRangeProfile(body, fc, bwList(2), azCut, elLook, ...
         'IncludeMultiBounce', true, 'WindowType', winType, 'Polarization', polIn, ...
-        'PrecomputedConcavePairs', pairs);
+        'PrecomputedConcavePairs', pairs, extraArgs{:});
     rtiHighBW = waverider.rcs.computeRangeProfile(body, fc, bwList(3), azCut, elLook, ...
         'IncludeMultiBounce', true, 'WindowType', winType, 'Polarization', polIn, ...
-        'PrecomputedConcavePairs', pairs);
+        'PrecomputedConcavePairs', pairs, extraArgs{:});
+    peakMainDB = max(rtiMain.RTI_total_dBsm(:));
+    cMaxRTI = max(18, min(55, ceil((peakMainDB + 2) / 5) * 5));
+    peakCutDB = max([rtiLowBW.RTI_total_dBsm(:); rtiMedBW.RTI_total_dBsm(:); rtiHighBW.RTI_total_dBsm(:)]);
+    yMaxHRRP = max(22, min(55, ceil((peakCutDB + 3) / 5) * 5));
 
     fig = figure('Name', 'Waverider Range-Angle-Intensity & Waveform Bandwidth Analysis', ...
         'Color', 'w', 'Position', [60, 60, 1460, 900], 'Visible', opts.Visible);
@@ -62,7 +71,7 @@ function fig = plotRangeAngleIntensity(body, varargin)
     imagesc(ax1, rtiMain.rangeVec_m, rtiMain.azVecDeg, rtiMain.RTI_total_dBsm);
     set(ax1, 'YDir', 'normal', 'Box', 'on');
     colormap(ax1, turbo);
-    clim(ax1, [-38, 18]);
+    clim(ax1, [-38, cMaxRTI]);
     cb1 = colorbar(ax1);
     cb1.Label.String = 'Scattering Intensity \sigma(R, \psi) [dBsm]';
 
@@ -95,7 +104,7 @@ function fig = plotRangeAngleIntensity(body, varargin)
     imagesc(ax2, rtiMain.rangeVec_m, rtiMain.azVecDeg, rtiMain.RTI_double_dBsm);
     set(ax2, 'YDir', 'normal', 'Box', 'on');
     colormap(ax2, turbo);
-    clim(ax2, [-38, 18]);
+    clim(ax2, [-38, cMaxRTI]);
     cb2 = colorbar(ax2);
     cb2.Label.String = 'Concave 2-Bounce Intensity [dBsm]';
 
@@ -130,7 +139,7 @@ function fig = plotRangeAngleIntensity(body, varargin)
     grid(ax3, 'on');
     set(ax3, 'Box', 'on');
     xlim(ax3, [min(rtiMain.rangeVec_m), max(rtiMain.rangeVec_m)]);
-    ylim(ax3, [-42, 22]);
+    ylim(ax3, [-42, yMaxHRRP]);
     xlabel(ax3, 'Down-Range Coordinate R [m]  (Relative to Vehicle Center)');
     ylabel(ax3, 'Compressed Range Profile \sigma(R) [dBsm]');
     title(ax3, sprintf('3. Waveform Bandwidth Impact on Down-Range Scatterer Separation (\\psi = %.0f^\\circ, \\theta_{el} = %.0f^\\circ)', ...
@@ -163,7 +172,7 @@ function fig = plotRangeAngleIntensity(body, varargin)
     grid(ax4, 'on');
     set(ax4, 'Box', 'on');
     xlim(ax4, [min(rtiMain.rangeVec_m), max(rtiMain.rangeVec_m)]);
-    ylim(ax4, [-42, 22]);
+    ylim(ax4, [-42, yMaxHRRP]);
     xlabel(ax4, 'Down-Range Coordinate R [m]  (Relative to Vehicle Center)');
     ylabel(ax4, 'Range Profile Intensity \sigma(R) [dBsm]');
     title(ax4, sprintf('4. 1D High-Resolution Range Profile Decomposition (B = %.0f MHz, \\psi = %.0f^\\circ)', ...

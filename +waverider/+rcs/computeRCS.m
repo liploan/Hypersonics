@@ -76,12 +76,25 @@ function rcsData = computeRCS(body, freqGHz, azDeg, elDeg, varargin)
     v1 = V(F(:, 1), :);
     v2 = V(F(:, 2), :);
     v3 = V(F(:, 3), :);
+    faceCenters = (v1 + v2 + v3) ./ 3.0;
     crossVec = 0.5 .* cross(v2 - v1, v3 - v1, 2);
     faceAreas = sqrt(sum(crossVec.^2, 2)) + 1e-15;
     faceNormals = crossVec ./ faceAreas; % Outward unit normals [nFaces x 3]
 
     isUpper = (patchID == 1);
     isLower = (patchID == 2);
+    isBase  = (patchID == 3);
+    sd = body.SurfaceData;
+    hasConcaveAft = isfield(sd, 'IsAxisymmetric') && sd.IsAxisymmetric && ...
+                    (~isfield(sd, 'HasAftFrustum') || ~sd.HasAftFrustum) && ...
+                    isfield(sd, 'AftCavityDepth_m') && (sd.AftCavityDepth_m > 1e-6);
+    if hasConcaveAft
+        xRim = sd.XProfile(end);
+        rBaseSq = sd.RBase_m^2;
+        dxBase = max(xRim - faceCenters(isBase, 1), 0.0);
+        yBase  = faceCenters(isBase, 2);
+        zBase  = faceCenters(isBase, 3);
+    end
 
     % Mutually visible concave super-cell pairs on the lower surface
     if opts.IncludeMultiBounce
@@ -94,13 +107,11 @@ function rcsData = computeRCS(body, freqGHz, azDeg, elDeg, varargin)
         concavePairs = struct('numPairs', 0);
     end
 
-    % Leading-edge segments for the optional fringe heuristic
+    % Base-rim sharp wedge segments for polarimetric Ufimtsev/Mitzner PTD fringe diffraction
     if opts.IncludeEdgeDiffraction
-        P_le = [body.SurfaceData.X_low(1, :).', body.SurfaceData.Y_low(1, :).', body.SurfaceData.Z_low(1, :).'];
-        leMid = 0.5 .* (P_le(1:end-1, :) + P_le(2:end, :));
-        dLE = P_le(2:end, :) - P_le(1:end-1, :);
-        leLen = sqrt(sum(dLE.^2, 2)) + 1e-12;
-        leTan = dLE ./ leLen;
+        rimData = waverider.rcs.buildRimPTDEdges(V, F, patchID, faceNormals, hasConcaveAft);
+    else
+        rimData = struct('count', 0);
     end
 
     % Allocate primary channel outputs [nDirs x nF]
@@ -134,6 +145,19 @@ function rcsData = computeRCS(body, freqGHz, azDeg, elDeg, varargin)
             U = uRadar(dI, :);
             cosTheta = faceNormals * U.';                       % [nFaces x nb]
             lit = cosTheta > 0;
+            if hasConcaveAft
+                litBase = lit(isBase, :);
+                for jb = 1:size(U, 1)
+                    if U(jb, 1) <= 1e-7
+                        litBase(:, jb) = false;
+                    else
+                        tAp = dxBase ./ U(jb, 1);
+                        rSqAp = (yBase + tAp .* U(jb, 2)).^2 + (zBase + tAp .* U(jb, 3)).^2;
+                        litBase(dxBase > 1e-7 & rSqAp > rBaseSq, jb) = false;
+                    end
+                end
+                lit(isBase, :) = litBase;
+            end
             Iface = waverider.rcs.facetPhaseIntegral(v1, v2, v3, faceNormals, 2.0 * k0 .* U);
             facetComplex = (1i * k0 / sqrt(pi)) .* (cosTheta .* lit) .* Iface;
             S_single_all(dI)   = sum(facetComplex, 1).';
@@ -141,27 +165,16 @@ function rcsData = computeRCS(body, freqGHz, azDeg, elDeg, varargin)
             S_single_lower(dI) = sum(facetComplex(isLower, :), 1).';
         end
 
-        % Optional uncalibrated leading-edge fringe heuristic
+        % Polarimetric Ufimtsev/Mitzner PTD base-rim fringe diffraction
         S_edge_mean = zeros(nDirs, 1);
         S_edge_HH   = zeros(nDirs, 1);
         S_edge_VV   = zeros(nDirs, 1);
         S_edge_HV   = zeros(nDirs, 1);
-        if opts.IncludeEdgeDiffraction
-            tDotU = leTan * uRadar.';
-            sinBetaSq = max(1.0 - tDotU.^2, 1e-4);
-            sinBetaEdge = sqrt(sinBetaSq);
-            phiEdge = k0 .* leLen .* tDotU;
-            sincEdge = ones(size(phiEdge));
-            nz = abs(phiEdge) > 1e-12;
-            sincEdge(nz) = sin(phiEdge(nz)) ./ phiEdge(nz);
-            rLeDotU = leMid * uRadar.';
-            edgeElem = (0.22 ./ sqrt(pi) .* sinBetaEdge .* leLen) .* sincEdge .* exp(1i * 2.0 * k0 .* rLeDotU);
-            S_edge_mean = sum(edgeElem, 1).';
-            tDotH = leTan * eH.';
-            tDotV = leTan * eV.';
-            S_edge_HH = sum(edgeElem .* ((tDotH.^2) ./ sinBetaSq), 1).';
-            S_edge_VV = sum(edgeElem .* ((tDotV.^2) ./ sinBetaSq), 1).';
-            S_edge_HV = sum(edgeElem .* ((tDotH .* tDotV) ./ sinBetaSq), 1).';
+        if opts.IncludeEdgeDiffraction && rimData.count > 0
+            [S_edge_mean, S_ptd_pol] = waverider.rcs.evaluateRimPTD(rimData, uRadar, k0, eH, false);
+            S_edge_HH = S_ptd_pol.HH;
+            S_edge_VV = S_ptd_pol.VV;
+            S_edge_HV = S_ptd_pol.HV;
         end
 
         % GO-PO concave double bounce (scalar + full 3D vector Sinclair dyadic)

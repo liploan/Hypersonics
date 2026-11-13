@@ -251,13 +251,15 @@ function meshData = stitchAxisymmetricMesh(surfData, cfg, NxWave, NxFrustEnd, Nx
     hasConcaveAft = (~isfield(surfData, 'HasAftFrustum') || ~surfData.HasAftFrustum) && ...
                     isfield(surfData, 'AftCavityDepth_m') && (surfData.AftCavityDepth_m > 0);
     if hasConcaveAft
-        Nb = max(cfg.NumBaseLayers, 8);
+        Nb = max(cfg.NumBaseLayers, 24);
         dAft = surfData.AftCavityDepth_m;
         pAft = surfData.AftCavityPower;
+        pGrid = max(1.0, min(pAft, 2.5));
     else
         Nb = max(cfg.NumBaseLayers, 3);
         dAft = 0.0;
         pAft = 2.0;
+        pGrid = 1.0;
     end
 
     midCol = ceil(Ny / 2);
@@ -265,7 +267,7 @@ function meshData = stitchAxisymmetricMesh(surfData, cfg, NxWave, NxFrustEnd, Nx
     zCenterAft = 0.5 * (Z_up(NxTotal, midCol) + Z_low(NxTotal, midCol));
 
     % Polar radial fraction u_m = 1 (outer rim, m=1) -> 0 (center pole, m=Nb)
-    uRad = linspace(1.0, 0.0, Nb).';
+    uRad = (linspace(1.0, 0.0, Nb).').^(1.0 / pGrid);
     if hasConcaveAft
         xBaseRings = xRim - dAft .* (1.0 - uRad.^pAft);
     else

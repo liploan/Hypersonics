@@ -244,18 +244,40 @@ which remains smooth right through zenith and nadir ($\theta_{\text{el}} = \pm 9
 
    satisfying Parseval total-power (span) conservation $|S_{PP}|^2 + \frac{1}{2}(|S_{OP}|^2 + |S_{LL}|^2) = \frac{1}{2}(|S_{HH}|^2 + |S_{VV}|^2 + |S_{HV}|^2 + |S_{VH}|^2)$. Here **`PP`** (`RL`/`LR`, opposite-sense circular, standard weather/tracking radar "Principal Polarization") passes odd-bounce specular returns while rejecting $90^\circ$ dihedral returns ($S_{HH}^{\text{MB}} = -S_{VV}^{\text{MB}}$), whereas **`OP`** (`RR`, same-sense circular "Orthogonal Polarization") rejects $100\%$ of single-bounce PO clutter ($S_{HH}^{\text{PO}} = S_{VV}^{\text{PO}}, S_{HV}^{\text{PO}} = 0$) and isolates concave ventral double-bounce returns roll-invariantly ($\lvert S_{OP}(\alpha)\rvert = \lvert e^{-i2\alpha} S_{OP}(0)\rvert = \lvert S_{OP}(0)\rvert$).
 4. **Why Polarimetric GO-PO Adds $< 3\%$ Compute Overhead vs. Explicit Full-Wave Solves**:
-   An explicit full-wave Method of Moments (MoM) or MLFMM solve at X-band ($10\text{ GHz}$, $\lambda = 3\text{ cm}$) on a $7\text{ m}$ booster-mounted waverider requires $\lambda/10$ surface discretization ($N \sim 1.5\times 10^6$ RWG edge unknowns), costing $O(N^2)$ to $O(N^3)$ memory/ops (or hours of iterative MLFMM Krylov solves across 549 aspect/frequency pairs) with two independent right-hand-side solves for orthogonal incident polarizations. In asymptotic GO-PO, $>97\%$ of CPU work is **polarization-independent** geometry (lit-facet culling, ray-cylinder filtering, Sutherland–Hodgman polygon clipping, and Gordon contour phase integration $I_{\Omega_{PQ}}$); evaluating the scalar $2\times 2$ dot-product weights $(W_{HH}, W_{VV}, W_\times)$ per clipped patch adds only a few floating-point multiplies and produces **all** linear and circular polarizations simultaneously (~$144\text{ ms}$ total for mesh + 549 multi-band RCS/RTI evaluations in Node.js).
+   In `docs/physics.js`, `evaluateDoubleBounceAtK` shares the clipped polygon geometry and Gordon contour integral across all linear and circular channels simultaneously (~$145\text{ ms}$ total for mesh + multi-band RCS/RTI evaluations in Node.js).
+
+### 6.4 Concave Aft-Cavity Circular-Aperture Rim Shadowing & Dome Convergence
+When an axisymmetric RV uses a recessed `'concave'` aft dome ($x(r) = X_{\text{rim}} - d_{\text{aft}}[1 - (r/R_b)^{p_{\text{aft}}}]$ without an aft frustum), the solid vehicle forebody terminates at the circular aperture $X = X_{\text{rim}}$ of radius $R_b$:
+1. **Exact Circular-Aperture Line-of-Sight Gate**: Any recessed point $\mathbf{r} = [x, y, z]$ with $x < X_{\text{rim}}$ (single-bounce `Patch 3` facet centroid, GO-PO primary cell $\mathbf{r}_P$, or clipped exit polygon centroid $\mathbf{r}_O$) has an unobstructed monostatic ray along $+\hat{\mathbf{u}}_{\text{radar}} = [u_x, u_y, u_z]$ if and only if
+   $$
+   u_x > 0 \quad \text{and} \quad \left(y + \frac{X_{\text{rim}} - x}{u_x} u_y\right)^2 + \left(z - z_{\text{aft}} + \frac{X_{\text{rim}} - x}{u_x} u_z\right)^2 \le R_b^2,
+   $$
+   eliminating non-physical forward/broadside ray leakage ($\psi \le 90^\circ$) and enforcing oblique lip shadowing across $\psi \in (90^\circ, 180^\circ)$.
+2. **Axial-Step-Equalized Dome Discretization**: Concave aft caps use $N_b \ge 24$ radial rings clustered via $u_m = (1 - m/(N_b - 1))^{1/p_{\text{grid}}}$ ($p_{\text{grid}} = \max(1, \min(p_{\text{aft}}, 2.5))$), keeping axial step $\Delta x < \lambda/3$ at X-band so tail-on PO converges within $< 0.3\text{ dB}$ of the exact paraboloid integral $\sigma_{\text{PO,dish}} = (\pi R_b^4 / d_{\text{aft}}^2)\sin^2(k_0 d_{\text{aft}})$.
+
+### 6.5 Polarimetric Ufimtsev / Mitzner PTD Base-Rim Edge Diffraction (`+rcs/evaluateRimPTD.m`)
+Sharp aft base perimeters (topological seams between outer skin `Patch != 3` with normal $\hat{\mathbf{n}}_1$ and aft base `Patch == 3` with normal $\hat{\mathbf{n}}_2$, exterior wedge angle $n\pi = \pi + \arccos(\hat{\mathbf{n}}_1\cdot\hat{\mathbf{n}}_2)$ with $n \in (1, 2]$) generate polarization-dependent edge diffraction sidelobes and nose-on base-rim backscatter. Using Ufimtsev's Physical Theory of Diffraction (PTD) with Mitzner's incremental length diffraction coefficients (`IncludeEdgeDiffraction` / `#chk-ptd-rim`), each illuminated convex wedge segment $(\mathbf{r}_e, \ell_e, \hat{\mathbf{t}}_e)$ at oblique edge angle $\sin\beta_e = \sqrt{1 - (\hat{\mathbf{t}}_e\cdot\hat{\mathbf{u}}_{\text{radar}})^2}$ contributes:
+
+$$
+\mathbf{S}_e^{\text{PTD}} = \frac{\ell_e \sin\beta_e}{\sqrt{\pi}}\,\mathrm{sinc}_{\text{rad}}(k_0 \ell_e \hat{\mathbf{t}}_e\cdot\hat{\mathbf{u}}_{\text{radar}})\, e^{i 2 k_0 \hat{\mathbf{u}}_{\text{radar}}\cdot\mathbf{r}_e}
+\begin{bmatrix}
+f_s h_\parallel^2 + f_h v_\parallel^2 & (f_s - f_h) h_\parallel v_\parallel \\
+(f_s - f_h) h_\parallel v_\parallel & f_s v_\parallel^2 + f_h h_\parallel^2
+\end{bmatrix},
+$$
+
+where $h_\parallel = (\hat{\mathbf{h}}\cdot\hat{\mathbf{t}}_e)/\sin\beta_e$, $v_\parallel = (\hat{\mathbf{v}}\cdot\hat{\mathbf{t}}_e)/\sin\beta_e$, $X = -\frac{1}{n}\cot(\frac{\pi}{2n})$, and the PO-subtracted Ufimtsev fringe function $Y_{\text{fringe}}(\phi) = \frac{(1/n)\sin(\pi/n)}{\cos(\pi/n) - \cos(2\phi/n)} - \mathbb{I}_{\text{lit}_1}(-\frac{1}{2}\tan\phi) - \mathbb{I}_{\text{lit}_2}(-\frac{1}{2}\tan(n\pi - \phi))$ uses the exact analytical L'Hôpital residue $-\frac{1}{2n}\cot(\pi/n)$ across reflection boundaries $\phi = \pi/2$ and $n\pi - \phi = \pi/2$, yielding $f_s = Y_{\text{fringe}} - X$ (TM/soft) and $f_h = Y_{\text{fringe}} + X$ (TE/hard).
 
 ---
 
-## 7. Wideband Stepped-Frequency HRRP & RTI (`+rcs/computeRangeProfile.m`)
+## 7. Wideband Stepped-Frequency HRRP & Sub-Facet 3-Edge Stokes Deposition (`+rcs/computeRangeProfile.m`)
 
 For waveform center frequency $f_c$ and bandwidth $B \in (0, f_c]$, unwindowed slant-range resolution is $\Delta R = c_0 / (2B)$ [20]. Applying a two-term cosine spectral window $W(f) = a_0 + 2a_1\cos(2\pi(f - f_c)/B)$ over $f \in [f_c - B/2, f_c + B/2]$ produces the exact analytical Harris (1978) point-spread function [19] in normalized range $x = R/\Delta R$:
 
 $$
 h_{\text{PSF}}(R) = \frac{a_0\,\mathrm{sinc}(x) + a_1\big[\mathrm{sinc}(x - 1) + \mathrm{sinc}(x + 1)\big]}{a_0}, \qquad \mathrm{sinc}(x) = \frac{\sin(\pi x)}{\pi x},
 $$
-with $(a_0, a_1) = (1, 0)$ for Rectangular ($-3\text{ dB}$ width $0.886\,\Delta R$, sidelobe $-13.26\text{ dB}$), $(0.5, 0.25)$ for Hann ($1.44\,\Delta R$, $-31.5\text{ dB}$), and $(0.54, 0.23)$ for Hamming ($1.30\,\Delta R$, $-42.7\text{ dB}$). Double-bounce cavity returns appear at true delayed down-range $R_D = \frac{1}{2}\big[-(\hat{\mathbf{u}}_{\text{radar}} - \hat{\mathbf{k}}_r)\cdot\mathbf{r}_O + c_{\text{path}}\big] + x_{\text{ref}}\hat{u}_x$, shifting behind direct surface speculars by $+\frac{1}{2}|\mathbf{r}_O - \mathbf{p}_O|$.
+with $(a_0, a_1) = (1, 0)$ for Rectangular ($-3\text{ dB}$ width $0.886\,\Delta R$, sidelobe $-13.26\text{ dB}$), $(0.5, 0.25)$ for Hann ($1.44\,\Delta R$, $-31.5\text{ dB}$), and $(0.54, 0.23)$ for Hamming ($1.30\,\Delta R$, $-42.7\text{ dB}$). When a lit PO facet is tilted across multiple range cells ($|\mathbf{w}_t| L_{\max} \ge 10^{-2}$), its three exact Stokes/Gordon edge terms are deposited at their individual edge midpoints $\mathbf{r}_{\text{mid},e} = \frac{1}{2}(\mathbf{v}_{e,a} + \mathbf{v}_{e,b})$ rather than lumped at the triangle centroid; because shared interior edges on any flat plate (such as a flat aft bulkhead) have $\mathbf{m}_{e,A} = -\mathbf{m}_{e,B}$ at identical $\mathbf{r}_{\text{mid},e}$, interior mesh edges cancel identically to machine precision, leaving pure physical near-rim and far-rim flashes at $\pm R_b\sin\theta$. Double-bounce cavity returns appear at true delayed down-range $R_D = \frac{1}{2}\big[-(\hat{\mathbf{u}}_{\text{radar}} - \hat{\mathbf{k}}_r)\cdot\mathbf{r}_O + c_{\text{path}}\big] + x_{\text{ref}}\hat{u}_x$, shifting behind direct surface speculars by $+\frac{1}{2}|\mathbf{r}_O - \mathbf{p}_O|$.
 
 ---
 

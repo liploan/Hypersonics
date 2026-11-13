@@ -403,9 +403,13 @@ button.btn-primary:hover {
   margin-bottom: 0.65rem;
 }
 
+.preset-row.preset-row-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
 .preset-row button {
-  padding: 0.38rem 0.5rem;
-  font-size: 0.78rem;
+  padding: 0.38rem 0.42rem;
+  font-size: 0.75rem;
 }
 
 .field-row {

@@ -958,7 +958,9 @@
     ctx.font = "11px ui-monospace, SFMono-Regular, Menlo, monospace";
 
     ctx.textAlign = "right";
-    for (let y = yMin; y <= yMax; y += 10) {
+    const yTickStep = (yMax - yMin) > 75 ? 15 : 10;
+    const yTickStart = Math.ceil(yMin / yTickStep) * yTickStep;
+    for (let y = yTickStart; y <= yMax + 1e-6; y += yTickStep) {
       const [, py] = toPx(xMin, y);
       ctx.beginPath(); ctx.moveTo(padL, py); ctx.lineTo(padL + plotW, py); ctx.stroke();
       ctx.fillText(`${y >= 0 ? "+" : ""}${y}`, padL - 8, py + 4);
@@ -1075,7 +1077,15 @@
     const nR = rangeVec.length;
     const rMin = rangeVec[0], rMax = rangeVec[nR - 1];
     const azMin = azVec[0], azMax = azVec[nAz - 1];
-    const cMin = -42.0, cMax = 22.0;
+    let peakRTI = -42.0;
+    for (let ia = 0; ia < nAz; ia++) {
+      const row = RTI_total_dBsm[ia];
+      for (let ir = 0; ir < nR; ir++) {
+        if (row[ir] > peakRTI) peakRTI = row[ir];
+      }
+    }
+    const cMin = -42.0;
+    const cMax = peakRTI > 20.0 ? Math.min(52.0, Math.ceil((peakRTI + 2.0) / 5.0) * 5.0) : 22.0;
 
     const offCanvas = document.createElement("canvas");
     offCanvas.width = nR;
@@ -1240,7 +1250,8 @@
     ctx.fillStyle = "#cbd5e1";
     ctx.font = "10px ui-monospace, SFMono-Regular, Menlo, monospace";
     ctx.textAlign = "left";
-    for (const dbVal of [-35, -20, -5, 10, 20]) {
+    for (let k = 0; k < 5; k++) {
+      const dbVal = Math.round(cMin + 5 + ((cMax - cMin - 7) * k) / 4);
       const py = padT + (1.0 - (dbVal - cMin) / (cMax - cMin)) * plotH;
       ctx.fillText(`${dbVal >= 0 ? "+" : ""}${dbVal}`, cbX + cbW + 4, py + 3);
     }
@@ -1254,21 +1265,39 @@
     ctx.restore();
   }
 
+  function computeDynamicCeiling(seriesList, defaultMax, hardCap = 55) {
+    let peak = -Infinity;
+    for (const s of seriesList) {
+      const arr = s.data;
+      for (let i = 0; i < arr.length; i++) {
+        if (Number.isFinite(arr[i]) && arr[i] > peak) peak = arr[i];
+      }
+    }
+    if (peak > defaultMax - 1.5) {
+      return Math.min(hardCap, Math.ceil((peak + 3.0) / 10.0) * 10.0);
+    }
+    return defaultMax;
+  }
+
   // 7. Canvas 6: 1D High-Resolution Range Profile (HRRP) Cut & Delayed Cavity Bounce
   function renderHRRPChart(rtiData, azCutDeg) {
-    const idx = Math.max(0, Math.min(rtiData.azVec.length - 1, Math.round(azCutDeg / 3)));
+    let idx = 0, bestDiff = Infinity;
+    for (let i = 0; i < rtiData.azVec.length; i++) {
+      const d = Math.abs(rtiData.azVec[i] - azCutDeg);
+      if (d < bestDiff) { bestDiff = d; idx = i; }
+    }
     const actualAz = rtiData.azVec[idx];
     const deltaR_cm = (rtiData.deltaR_m * 100.0).toFixed(1);
 
     const hrrpSeries = [
       { label: "Total Profile (PO + 2-Bounce)", color: "#38bdf8", data: rtiData.RTI_total_dBsm[idx], width: 2.3, dashed: false },
-      { label: "Single-Bounce PO Only", color: "#fb923c", data: rtiData.RTI_single_dBsm[idx], width: 1.6, dashed: true },
+      { label: "Single-Bounce PO + Rim", color: "#fb923c", data: rtiData.RTI_single_dBsm[idx], width: 1.6, dashed: true },
       { label: "Concave 2-Bounce (+0.5 d_PQ Delay)", color: "#c084fc", data: rtiData.RTI_double_dBsm[idx], width: 2.0, dashed: false }
     ];
 
     const vLines = [
       { x: rtiData.R_nose[idx], label: "Nose Tip", color: "#38bdf8", yOffset: 14 },
-      { x: rtiData.R_base[idx], label: "Waverider Base (X=L)", color: "#fbbf24", yOffset: 28 }
+      { x: rtiData.R_base[idx], label: "Aft Base (X=L)", color: "#fbbf24", yOffset: 28 }
     ];
     if (Math.abs(rtiData.R_aft[idx] - rtiData.R_base[idx]) > 0.08) {
       vLines.push({ x: rtiData.R_aft[idx], label: "Booster Base", color: "#4ade80", yOffset: 42 });
@@ -1276,6 +1305,7 @@
 
     const rStep = (rtiData.rangeVec[rtiData.rangeVec.length - 1] - rtiData.rangeVec[0]) > 8.5 ? 2.0 : 1.0;
     const polLabel = rtiData.polarization || "Mean";
+    const yMaxHRRP = computeDynamicCeiling(hrrpSeries, 25, 55);
     drawLineChart(
       document.getElementById("canvas-hrrp"),
       rtiData.rangeVec,
@@ -1283,7 +1313,7 @@
       `Down-Range Coordinate R [m]  (Pol: ${polLabel}, f_c = ${rtiData.freqGHz.toFixed(1)} GHz, B = ${rtiData.bwMHz.toFixed(0)} MHz, \u0394R = ${deltaR_cm} cm, \u03C8 = ${actualAz}\u00B0)`,
       `Range Profile \u03C3_${polLabel}(R) [dBsm]`,
       -45,
-      25,
+      yMaxHRRP,
       vLines,
       " m",
       rStep
@@ -1301,12 +1331,16 @@
     const winType = document.getElementById("sel-window").value;
     const rtiAz = parseFloat(document.getElementById("rng-rtiaz").value);
     const includeMB = document.getElementById("chk-multibounce").checked;
+    const ptdEl = document.getElementById("chk-ptd-rim");
+    const includePTD = ptdEl ? ptdEl.checked : false;
+    const rcsOpts = { includeEdgeDiffraction: includePTD };
 
     const deltaR_cm = (phys.C0 / (2.0 * bwMHz * 1e6)) * 100.0;
     const bandLabel = fcGHz < 1.0 ? "UHF" : fcGHz < 2.0 ? "L" : fcGHz < 4.0 ? "S" : fcGHz < 8.0 ? "C" : "X";
+    const elRegionLabel = Math.abs(elLook) <= 2 ? "Waterline / Base Normal" : elLook < 0 ? "Ventral" : "Dorsal";
 
     document.getElementById("val-rcsel").innerHTML =
-      `${elLook >= 0 ? "+" : ""}${elLook}&deg; (${elLook < 0 ? "Ventral" : "Dorsal"})`;
+      `${elLook >= 0 ? "+" : ""}${elLook}&deg; (${elRegionLabel})`;
     document.getElementById("val-fc").textContent = `${fcGHz.toFixed(1)} GHz (${bandLabel})`;
     document.getElementById("val-bw").innerHTML = `${bwMHz.toFixed(0)} MHz (&Delta;R=${deltaR_cm.toFixed(1)} cm)`;
     document.getElementById("val-rtiaz").innerHTML = `${rtiAz.toFixed(0)}&deg;`;
@@ -1316,15 +1350,27 @@
       `B = ${bwMHz.toFixed(0)} MHz @ ${fcGHz.toFixed(1)} GHz (${((bwMHz * 0.1) / fcGHz).toFixed(1)}% BW)`;
 
     document.getElementById("hint-az-el").innerHTML =
-      `Pol: <strong>${pol}</strong> &middot; Look Elevation &theta;<sub>el</sub> = ${elLook}&deg; (${elLook < 0 ? "Ventral Cavity" : "Dorsal Canopy"})`;
+      `Pol: <strong>${pol}</strong> &middot; Look Elevation &theta;<sub>el</sub> = ${elLook}&deg; (${Math.abs(elLook) <= 2 ? "Waterline &middot; Base Specular Active" : elLook < 0 ? "Ventral Cavity &middot; Set 0&deg; for Base Specular" : "Dorsal Canopy &middot; Set 0&deg; for Base Specular"})`;
     document.getElementById("hint-rti-bw").innerHTML =
       `Pol: <strong>${pol}</strong> &middot; f<sub>c</sub> = ${fcGHz.toFixed(1)} GHz &middot; B = ${bwMHz.toFixed(0)} MHz (&Delta;R = ${deltaR_cm.toFixed(1)} cm) &middot; Click Heatmap to Cut`;
     document.getElementById("hint-hrrp-cut").innerHTML =
       `Pol: <strong>${pol}</strong> &middot; Cut at &psi;<sub>cut</sub> = ${rtiAz.toFixed(0)}&deg;, &theta;<sub>el</sub> = ${elLook}&deg; &middot; Window: ${winType.toUpperCase()}`;
 
-    // 1. Azimuthal Sweep (0 to 180 deg) across UHF (0.5), L (1.5), S (3.0), C (6.0), X (10.0 GHz)
-    const azVec = [];
-    for (let a = 0; a <= 180; a += 3) azVec.push(a);
+    // 1. Azimuthal Sweep (0 to 180 deg) with 0.25-deg refinement across Nose (0..6) & Tail Base Lobe (172..180)
+    const azSet = new Set();
+    for (let a = 0; a <= 6.0001; a += 0.5) azSet.add(Number(a.toFixed(2)));
+    for (let a = 6; a <= 172.0001; a += 2.0) azSet.add(Number(a.toFixed(2)));
+    for (let a = 172; a <= 180.0001; a += 0.25) azSet.add(Number(a.toFixed(2)));
+    if (currentModel.isAxisymmetric && currentModel.rvMeta) {
+      for (const thStage of currentModel.rvMeta.coneAnglesDeg) {
+        const cAz = 90.0 - thStage;
+        for (let d = -3.0; d <= 3.0001; d += 0.5) {
+          const v = Math.max(0.0, Math.min(180.0, cAz + d));
+          azSet.add(Number(v.toFixed(2)));
+        }
+      }
+    }
+    const azVec = Array.from(azSet).sort((a, b) => a - b);
 
     const bands = [
       { f: 0.5, label: "UHF 0.5GHz", color: "#38bdf8" },
@@ -1337,7 +1383,7 @@
     const azRaw = bands.map(() => new Float64Array(azVec.length));
 
     for (let ia = 0; ia < azVec.length; ia++) {
-      const multi = phys.evaluateRCSMultiFreq(currentModel, azFreqs, azVec[ia], elLook, includeMB, pol);
+      const multi = phys.evaluateRCSMultiFreq(currentModel, azFreqs, azVec[ia], elLook, includeMB, pol, rcsOpts);
       for (let ib = 0; ib < bands.length; ib++) {
         azRaw[ib][ia] = multi[ib].total_dBsm;
       }
@@ -1357,11 +1403,25 @@
       azMarkers.push({ x: specAz, label: `Cone Specular (~${Math.round(specAz)}\u00B0)` });
       if (currentModel.rvMeta.aftCavityDepth_m > 0 && currentModel.NxTotal === currentModel.NxWave) {
         azMarkers.push({ x: 162, label: "Aft Cavity Sector", color: "#4ade80", yOffset: 28 });
+      } else {
+        azMarkers.push({
+          x: 179.8,
+          label: Math.abs(elLook) <= 2 ? "Base Plate Specular (180\u00B0)" : "Base Normal (@ \u03B8_el=0\u00B0)",
+          color: "#fbbf24",
+          yOffset: 28
+        });
       }
     } else {
       const leSweepNomDeg = (Math.atan2(currentModel.cfg.length, currentModel.cfg.span) * 180.0) / Math.PI;
       azMarkers.push({ x: leSweepNomDeg, label: `LE Specular (~${Math.round(leSweepNomDeg)}\u00B0)` });
+      azMarkers.push({
+        x: 179.8,
+        label: Math.abs(elLook) <= 2 ? "Base Plate Specular (180\u00B0)" : "Base Normal (@ \u03B8_el=0\u00B0)",
+        color: "#fbbf24",
+        yOffset: 28
+      });
     }
+    const yMaxAz = computeDynamicCeiling(azSeries, 25, 55);
     drawLineChart(
       document.getElementById("canvas-rcs-az"),
       azVec,
@@ -1369,13 +1429,16 @@
       "Azimuth Angle \u03C8 [deg]  (0\u00B0 = Nose-On, 90\u00B0 = Broadside, 180\u00B0 = Tail-On)",
       `Monostatic RCS \u03C3_${pol} [dBsm]`,
       -40,
-      25,
+      yMaxAz,
       azMarkers
     );
 
-    // 2. Elevation Cut (-90 deg Ventral to +90 deg Dorsal) at Oblique Azimuth = 45 deg
-    const elVec = [];
-    for (let e = -90; e <= 90; e += 3) elVec.push(e);
+    // 2. Elevation Cut (-90 deg Ventral to +90 deg Dorsal) with 0.25-deg refinement around Horizon (0 deg)
+    const elSet = new Set();
+    for (let e = -90; e <= -6.0001; e += 3.0) elSet.add(Number(e.toFixed(2)));
+    for (let e = -6; e <= 6.0001; e += 0.25) elSet.add(Number(e.toFixed(2)));
+    for (let e = 6; e <= 90.0001; e += 3.0) elSet.add(Number(e.toFixed(2)));
+    const elVec = Array.from(elSet).sort((a, b) => a - b);
 
     const elBands = [
       { f: 0.5, name: "UHF 0.5GHz", color: "#38bdf8" },
@@ -1385,42 +1448,46 @@
     const elFreqs = elBands.map((b) => b.f);
     const elTot = elBands.map(() => new Float64Array(elVec.length));
     const elSng = elBands.map(() => new Float64Array(elVec.length));
+    const elTailX = new Float64Array(elVec.length);
     let maxMBGain = 0.0;
 
     for (let ie = 0; ie < elVec.length; ie++) {
-      const multi = phys.evaluateRCSMultiFreq(currentModel, elFreqs, 45.0, elVec[ie], includeMB, pol);
+      const multi = phys.evaluateRCSMultiFreq(currentModel, elFreqs, 45.0, elVec[ie], includeMB, pol, rcsOpts);
       for (let ib = 0; ib < elBands.length; ib++) {
         elTot[ib][ie] = multi[ib].total_dBsm;
         elSng[ib][ie] = multi[ib].single_dBsm;
         const gain = multi[ib].total_dBsm - multi[ib].single_dBsm;
         if (gain > maxMBGain) maxMBGain = gain;
       }
+      elTailX[ie] = phys.evaluateRCSDirection(currentModel, 10.0, 180.0, elVec[ie], includeMB, pol, rcsOpts).total_dBsm;
     }
 
     const elSeries = [];
     elBands.forEach((b, ib) => {
-      elSeries.push({ label: `${b.name} Total`, color: b.color, data: elTot[ib], width: 2.2, dashed: false });
-      elSeries.push({ label: `${b.name} 1-Bounce`, color: b.color, data: elSng[ib], width: 1.3, dashed: true });
+      elSeries.push({ label: `${b.name} (\u03C8=45\u00B0)`, color: b.color, data: elTot[ib], width: 2.1, dashed: false });
+      elSeries.push({ label: `${b.name} 1B`, color: b.color, data: elSng[ib], width: 1.2, dashed: true });
     });
+    elSeries.push({ label: "X 10GHz Tail (\u03C8=180\u00B0)", color: "#4ade80", data: elTailX, width: 2.0, dashed: false });
 
     let ventralXSum = 0.0, dorsalXSum = 0.0, ventralUHFSum = 0.0, nSec = 0;
     for (let az = 25; az <= 75; az += 10) {
-      const vPair = phys.evaluateRCSMultiFreq(currentModel, [0.5, 10.0], az, -22.0, includeMB, pol);
+      const vPair = phys.evaluateRCSMultiFreq(currentModel, [0.5, 10.0], az, -22.0, includeMB, pol, rcsOpts);
       ventralUHFSum += vPair[0].total_m2;
       ventralXSum += vPair[1].total_m2;
-      dorsalXSum += phys.evaluateRCSDirection(currentModel, 10.0, az, +22.0, includeMB, pol).total_m2;
+      dorsalXSum += phys.evaluateRCSDirection(currentModel, 10.0, az, +22.0, includeMB, pol, rcsOpts).total_m2;
       nSec++;
     }
 
+    const yMaxEl = computeDynamicCeiling(elSeries, 35, 55);
     drawLineChart(
       document.getElementById("canvas-rcs-el"),
       elVec,
       elSeries,
-      "Elevation Angle \u03B8_el [deg]  (< 0\u00B0 Ventral Concave Underside  |  > 0\u00B0 Dorsal Canopy)",
+      "Elevation Angle \u03B8_el [deg]  (< 0\u00B0 Ventral  |  0\u00B0 Tail Base Specular  |  > 0\u00B0 Dorsal)",
       `Monostatic RCS \u03C3_${pol} [dBsm]`,
       -40,
-      35,
-      [{ x: 0, label: "Horizon (\u03B8_el = 0\u00B0)" }]
+      yMaxEl,
+      [{ x: 0, label: "Base Normal / Horizon (\u03B8_el = 0\u00B0)" }]
     );
 
     const vX_dB = 10.0 * Math.log10(Math.max(ventralXSum / nSec, 1e-8));
@@ -1438,7 +1505,8 @@
 
     // 3. Compute & Render 2D Range-Angle-Intensity (Sinogram) and 1D High-Resolution Range Profile (HRRP)
     currentRTIData = phys.computeRangeAngleIntensity(currentModel, fcGHz, bwMHz, elLook, includeMB, winType, {
-      polarization: pol
+      polarization: pol,
+      includeEdgeDiffraction: includePTD
     });
     renderRangeAngleIntensity(currentRTIData, rtiAz);
     renderHRRPChart(currentRTIData, rtiAz);
@@ -1689,6 +1757,8 @@
     const rtiAz = parseFloat(document.getElementById("rng-rtiaz").value);
     const winType = document.getElementById("sel-window").value;
     const pol = document.getElementById("sel-pol").value;
+    const chkPTD = document.getElementById("chk-ptd-rim");
+    const includePTD = chkPTD ? chkPTD.checked : false;
 
     const cfgLines = cfg.method === "rv"
       ? [
@@ -1739,8 +1809,8 @@
       "body = waverider.WaveriderBody(cfg);",
       "body.printSummary();",
       "body.plot();",
-      `body.plotRCS('Polarization', '${pol}', 'VentralElevationDeg', ${elLook.toFixed(1)});`,
-      `waverider.viz.plotRangeAngleIntensity(body, 'CenterFreqGHz', ${fcGHz.toFixed(1)}, 'BandwidthMHz', ${bwMHz.toFixed(0)}, 'ElevationDeg', ${elLook.toFixed(1)}, 'CutAzimuthDeg', ${rtiAz.toFixed(0)}, 'WindowType', '${winType}', 'Polarization', '${pol}');`,
+      `body.plotRCS('Polarization', '${pol}', 'VentralElevationDeg', ${elLook.toFixed(1)}, 'IncludeEdgeDiffraction', ${includePTD});`,
+      `waverider.viz.plotRangeAngleIntensity(body, 'CenterFreqGHz', ${fcGHz.toFixed(1)}, 'BandwidthMHz', ${bwMHz.toFixed(0)}, 'ElevationDeg', ${elLook.toFixed(1)}, 'CutAzimuthDeg', ${rtiAz.toFixed(0)}, 'WindowType', '${winType}', 'Polarization', '${pol}', 'IncludeEdgeDiffraction', ${includePTD});`,
       `body.exportSTL('${stlOut}');`
     ].join("\n");
     document.getElementById("matlab-code-output").textContent = code;
@@ -1803,8 +1873,29 @@
     });
   });
 
+  // Quick Radar Aspect Preset Buttons (Ventral / Waterline / Base Specular)
+  document.querySelectorAll("[data-radar-aspect]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const aspect = btn.getAttribute("data-radar-aspect");
+      const rngEl = document.getElementById("rng-rcsel");
+      const rngAz = document.getElementById("rng-rtiaz");
+      if (aspect === "ventral") {
+        rngEl.value = -22;
+        rngAz.value = 45;
+      } else if (aspect === "waterline") {
+        rngEl.value = 0;
+      } else if (aspect === "tail_specular") {
+        rngEl.value = 0;
+        rngAz.value = 180;
+      }
+      syncSliderVars(rngEl);
+      syncSliderVars(rngAz);
+      scheduleUpdate("rcs");
+    });
+  });
+
   // Bind each control to its exact minimum update tier (single event per control)
-  const rcsControlIds = new Set(["sel-pol", "rng-rcsel", "rng-fc", "rng-bw", "sel-window", "chk-multibounce"]);
+  const rcsControlIds = new Set(["sel-pol", "rng-rcsel", "rng-fc", "rng-bw", "sel-window", "chk-ptd-rim", "chk-multibounce"]);
   const view3DControlIds = new Set(["chk-shock", "chk-rays", "chk-wireframe"]);
 
   document.querySelectorAll(".sidebar-controls input, .sidebar-controls select").forEach((el) => {
@@ -1827,7 +1918,7 @@
     const plotH = Math.max(rect.height - padT - padB, 100);
     const yRel = e.clientY - rect.top - padT;
     const normAz = 1.0 - Math.max(0.0, Math.min(1.0, yRel / plotH));
-    const azSelected = Math.round((normAz * 180.0) / 3.0) * 3;
+    const azSelected = Math.round(normAz * 180.0);
     const rngAz = document.getElementById("rng-rtiaz");
     rngAz.value = azSelected;
     syncSliderVars(rngAz);

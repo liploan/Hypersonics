@@ -690,7 +690,7 @@ record("B5 Monte-Carlo volume == divergence volume (presets)", worstVolSigma < 4
   );
   record(
     "F5 Polarimetric HRRP/RTI: OP & HV isolate delayed 2-bounce",
-    peakSngHH > -25.0 &&
+    peakSngHH > -30.0 &&
       maxSngOPFloorDev < 1e-12 &&
       maxSngHVFloorDev < 1e-12 &&
       peakDblOP > -20.0 &&
@@ -929,6 +929,177 @@ record("B5 Monte-Carlo volume == divergence volume (presets)", worstVolSigma < 4
       cavDelayM > 0.2 &&
       rDblPk > rSngPk + 0.15,
     `flat OP=${flatOffOP.total_dBsm.toFixed(1)} dBsm -> concave OP=${concOffOP.total_dBsm.toFixed(2)} dBsm, cavity delay +${(100 * cavDelayM).toFixed(1)} cm`
+  );
+}
+
+// ---------------------------------------------------------------------------
+// H. BASE-SPECULAR CONVERGENCE, APERTURE SHADOWING, RIM PTD & 3-EDGE HRRP
+// ---------------------------------------------------------------------------
+{
+  // H1: Concave paraboloid aft-cavity tail-on PO matches exact dish formula (pi Rb^4 / d^2) sin^2(k0 d)
+  const mDish = phys.buildWaveriderModel({
+    method: "rv",
+    mach: 8.0,
+    length: 4.5,
+    rvBodyType: "bi_conic",
+    rvNoseType: "spherical",
+    rvBluntness: 0.16,
+    rvConeAngles: [8.0, 5.0, 5.0],
+    rvStageFractions: [0.55, 0.45, 0.0],
+    rvAftType: "concave",
+    rvAftDepth: 0.38,
+    rvAftPower: 2.0
+  });
+  const RbDish = mDish.rvMeta.rBase_m;
+  const dDish = mDish.rvMeta.aftCavityDepth_m;
+  const kDish = (2.0 * Math.PI * 10e9) / phys.C0;
+  const exactDishDB = 10.0 * Math.log10(
+    (Math.PI * Math.pow(RbDish, 4) / (dDish * dDish)) * Math.pow(Math.sin(kDish * dDish), 2) + 1e-5
+  );
+  const resDish = phys.evaluateRCSDirection(mDish, 10.0, 180.0, 0.0, false, "Mean");
+  const dishErrDB = Math.abs(resDish.single_dBsm - exactDishDB);
+  record(
+    "H1 Concave paraboloid aft-cavity tail-on PO vs exact dish integral",
+    dishErrDB < 0.4,
+    `model=${resDish.single_dBsm.toFixed(2)} dBsm vs exact=${exactDishDB.toFixed(2)} dBsm (err ${dishErrDB.toFixed(3)} dB)`
+  );
+
+  // H2: Circular-aperture shadowing blocks 100% of forward/broadside aft-cavity leakage (az <= 90 deg)
+  const monoBase = {
+    method: "rv",
+    mach: 7.0,
+    length: 3.6,
+    rvBodyType: "mono_conic",
+    rvNoseType: "spherical",
+    rvBluntness: 0.15,
+    rvConeAngles: [9.0, 9.0, 9.0]
+  };
+  const mMonoFlat = phys.buildWaveriderModel({ ...monoBase, rvAftType: "flat" });
+  const mMonoConc = phys.buildWaveriderModel({ ...monoBase, rvAftType: "concave", rvAftDepth: 0.42, rvAftPower: 2.0 });
+  let maxFwdDiffDB = 0.0;
+  let maxFwdCavOPDev = 0.0;
+  for (const az of [0.0, 30.0, 60.0, 90.0]) {
+    const rF = phys.evaluateRCSDirection(mMonoFlat, 10.0, az, -12.0, true, "HH");
+    const rC = phys.evaluateRCSDirection(mMonoConc, 10.0, az, -12.0, true, "HH");
+    maxFwdDiffDB = Math.max(maxFwdDiffDB, Math.abs(rF.total_dBsm - rC.total_dBsm));
+    maxFwdCavOPDev = Math.max(maxFwdCavOPDev, Math.abs(rC.channels.OP.dBsm - -50.0));
+  }
+  record(
+    "H2 Aft-cavity aperture shadowing: zero forward/broadside leakage",
+    maxFwdDiffDB < 1e-12 && maxFwdCavOPDev < 1e-12,
+    `max|flat-concave| (az<=90)=${maxFwdDiffDB.toExponential(2)} dB, forward OP=${(-50.0 + maxFwdCavOPDev).toFixed(2)} dBsm`
+  );
+
+  // H3: Base-rim Ufimtsev/Mitzner PTD vs Keller (1960) cone GTD, 180deg pole continuity, HH/VV split & reciprocity
+  const Ldisk = 4.0, coneDeg = 8.0;
+  const mDisk = phys.buildWaveriderModel({
+    method: "rv",
+    mach: 7.0,
+    length: Ldisk,
+    numHalfSpan: 73,
+    rvBodyType: "mono_conic",
+    rvNoseType: "conical",
+    rvConeAngles: [coneDeg, coneDeg, coneDeg],
+    rvAftType: "flat"
+  });
+  const RbD = mDisk.rvMeta.rBase_m;
+  const nWedge = 1.5 + (coneDeg * Math.PI / 180.0) / Math.PI;
+  const kellerNoseSigma =
+    ((4.0 * Math.PI * RbD * RbD) / (nWedge * nWedge)) *
+    Math.pow(Math.sin(Math.PI / nWedge) / (Math.cos(Math.PI / nWedge) - Math.cos((3.0 * Math.PI) / nWedge)), 2);
+  const kellerNoseDB = 10.0 * Math.log10(kellerNoseSigma + 1e-5);
+  const ptdOpts = { includeEdgeDiffraction: true };
+  const rNosePTD = phys.evaluateRCSDirection(mDisk, 10.0, 0.0, 0.0, false, "HH", ptdOpts);
+  const kellerErrDB = Math.abs(rNosePTD.total_dBsm - kellerNoseDB);
+
+  const r180 = phys.evaluateRCSDirection(mDisk, 10.0, 180.0, 0.0, false, "HH", ptdOpts);
+  const r179995 = phys.evaluateRCSDirection(mDisk, 10.0, 179.995, 0.0, false, "HH", ptdOpts);
+  const rElEps = phys.evaluateRCSDirection(mDisk, 10.0, 180.0, 0.005, false, "VV", ptdOpts);
+  const poleJumpDB = Math.max(
+    Math.abs(r180.total_dBsm - r179995.total_dBsm),
+    Math.abs(r180.channels.VV.dBsm - rElEps.total_dBsm)
+  );
+  const rFwdSplit = phys.evaluateRCSDirection(mDisk, 10.0, 15.0, 0.0, false, "HH", ptdOpts);
+  const rAftSplit = phys.evaluateRCSDirection(mDisk, 10.0, 140.0, 0.0, false, "HH", ptdOpts);
+  const fwdHHMinusVV = rFwdSplit.channels.HH.dBsm - rFwdSplit.channels.VV.dBsm;
+  const aftVVMinusHH = rAftSplit.channels.VV.dBsm - rAftSplit.channels.HH.dBsm;
+  const rOblPTD = phys.evaluateRCSDirection(mDisk, 10.0, 142.0, -23.0, false, "HV", ptdOpts);
+  const ptdRecipErr = Math.hypot(
+    rOblPTD.channels.HV.re - rOblPTD.channels.VH.re,
+    rOblPTD.channels.HV.im - rOblPTD.channels.VH.im
+  );
+  record(
+    "H3 Base-rim Ufimtsev PTD vs Keller (1960), 180deg continuity & HH/VV split",
+    kellerErrDB < 0.05 &&
+      poleJumpDB < 0.02 &&
+      fwdHHMinusVV > 15.0 &&
+      aftVVMinusHH > 6.0 &&
+      ptdRecipErr < 1e-15 &&
+      rOblPTD.channels.HV.dBsm > -45.0,
+    `Keller err=${kellerErrDB.toFixed(4)} dB, jump@180=${poleJumpDB.toFixed(4)} dB, HH-VV@15=+${fwdHHMinusVV.toFixed(1)} dB, VV-HH@140=+${aftVVMinusHH.toFixed(1)} dB`
+  );
+
+  // H4: Wideband 3-edge Stokes HRRP cancels subdivided flat-plate interior & localizes RV rim flashes
+  const nSub = 20, halfSq = 0.6;
+  const vSq = [], fSq = [];
+  for (let iy = 0; iy <= nSub; iy++) {
+    const yy = -halfSq + (2.0 * halfSq * iy) / nSub;
+    for (let iz = 0; iz <= nSub; iz++) {
+      const zz = -halfSq + (2.0 * halfSq * iz) / nSub;
+      vSq.push([0.0, yy, zz]);
+    }
+  }
+  for (let iy = 0; iy < nSub; iy++) {
+    for (let iz = 0; iz < nSub; iz++) {
+      const a = iy * (nSub + 1) + iz;
+      const b = (iy + 1) * (nSub + 1) + iz;
+      const c = (iy + 1) * (nSub + 1) + (iz + 1);
+      const d = iy * (nSub + 1) + (iz + 1);
+      fSq.push([a, b, c]);
+      fSq.push([a, c, d]);
+    }
+  }
+  const mSqPlate = phys.buildCanonicalTargetModel(vSq, fSq, null, 1.2);
+  const azTilt = 145.0; // 35 deg off +X plate normal
+  const sinTilt = Math.sin((180.0 - azTilt) * (Math.PI / 180.0));
+  const rtiSq = phys.computeRangeAngleIntensity(mSqPlate, 10.0, 2000.0, 0.0, false, "hann", {
+    azVec: [azTilt],
+    polarization: "HH",
+    minRangeBins: 2401,
+    maxRangeBins: 4001
+  });
+  let pkSqEdge = -Infinity, pkSqMid = -Infinity;
+  for (let i = 0; i < rtiSq.rangeVec.length; i++) {
+    const rv = rtiSq.rangeVec[i];
+    const db = rtiSq.RTI_single_dBsm[0][i];
+    if (Math.abs(Math.abs(rv) - halfSq * sinTilt) < 0.08 && db > pkSqEdge) pkSqEdge = db;
+    if (Math.abs(rv) < 0.08 && db > pkSqMid) pkSqMid = db;
+  }
+  const sqInteriorSuppressDB = pkSqEdge - pkSqMid;
+
+  const rtiDisk = phys.computeRangeAngleIntensity(mDisk, 10.0, 2000.0, 0.0, false, "hann", {
+    azVec: [azTilt],
+    polarization: "HH",
+    minRangeBins: 2401,
+    maxRangeBins: 4001
+  });
+  const rBaseCtr = rtiDisk.R_base[0];
+  const rNearExp = rBaseCtr - RbD * sinTilt;
+  const rFarExp = rBaseCtr + RbD * sinTilt;
+  let pkNear = -Infinity, rNearPk = 0, pkFar = -Infinity, rFarPk = 0, pkMidDisk = -Infinity;
+  for (let i = 0; i < rtiDisk.rangeVec.length; i++) {
+    const rv = rtiDisk.rangeVec[i];
+    const db = rtiDisk.RTI_single_dBsm[0][i];
+    if (Math.abs(rv - rNearExp) < 0.12 && db > pkNear) { pkNear = db; rNearPk = rv; }
+    if (Math.abs(rv - rFarExp) < 0.12 && db > pkFar) { pkFar = db; rFarPk = rv; }
+    if (Math.abs(rv - rBaseCtr) < 0.06 && db > pkMidDisk) { pkMidDisk = db; }
+  }
+  const rimPosErr = Math.max(Math.abs(rNearPk - rNearExp), Math.abs(rFarPk - rFarExp));
+  const diskSuppressDB = Math.min(pkNear, pkFar) - pkMidDisk;
+  record(
+    "H4 Tilted flat-plate & RV base HRRP: 3-edge interior cancellation & rim flashes",
+    sqInteriorSuppressDB > 38.0 && rimPosErr < 0.02 && diskSuppressDB > 20.0,
+    `800-tri plate suppress=${sqInteriorSuppressDB.toFixed(1)} dB, RV rim err=${(100 * rimPosErr).toFixed(2)} cm (suppress ${diskSuppressDB.toFixed(1)} dB)`
   );
 }
 

@@ -50,6 +50,16 @@ function [S_mb, contrib, S_mb_pol] = doubleBounceGOPO(cp, uRadar, k0, wantContri
     rP = cp.cellCenter(P, :);  nP = cp.cellNormal(P, :);
     rQ = cp.cellCenter(Q, :);  nQ = cp.cellNormal(Q, :);
     radP = cp.cellRadius(P);   radQ = cp.cellRadius(Q);
+    hasAp = isfield(cp, 'aftAperture') && isstruct(cp.aftAperture) && cp.aftAperture.active && isfield(cp, 'cellGroup');
+    if hasAp
+        grpP = cp.cellGroup(P);
+        xRim = cp.aftAperture.xRim;
+        zApCtr = cp.aftAperture.zCenter;
+        rBaseSq = cp.aftAperture.rBaseSq;
+    else
+        grpP = zeros(size(P));
+        xRim = 0.0; zApCtr = 0.0; rBaseSq = 0.0;
+    end
     Gamma = -1.0;
     pref = 1i * k0 / (2.0 * sqrt(pi));
 
@@ -85,6 +95,21 @@ function [S_mb, contrib, S_mb_pol] = doubleBounceGOPO(cp, uRadar, k0, wantContri
         rows = zeros(numel(cand), 9);
         nRows = 0;
         for m = cand.'
+            isAftCav = hasAp && (grpP(m) == 1);
+            if isAftCav
+                if u(1) <= 1e-7
+                    continue;
+                end
+                dxP = xRim - rP(m, 1);
+                if dxP > 1e-7
+                    tP = dxP / u(1);
+                    yP = rP(m, 2) + tP * u(2);
+                    zP = rP(m, 3) - zApCtr + tP * u(3);
+                    if (yP^2 + zP^2) > rBaseSq
+                        continue;
+                    end
+                end
+            end
             pv = squeeze(cp.cellVerts(P(m), :, :));        % 4 x 3
             qv = squeeze(cp.cellVerts(Q(m), :, :));
             np = nP(m, :);
@@ -115,6 +140,22 @@ function [S_mb, contrib, S_mb_pol] = doubleBounceGOPO(cp, uRadar, k0, wantContri
             v1 = repmat(poly(1, :), nT, 1);
             v2 = poly(2:end - 1, :);
             v3 = poly(3:end, :);
+            rO = [0.0, 0.0, 0.0];
+            if wantContrib || isAftCav
+                triA = 0.5 .* vecnorm(cross(v2 - v1, v3 - v1, 2), 2, 2);
+                rO = sum(((v1 + v2 + v3) ./ 3) .* triA, 1) ./ max(sum(triA), 1e-15);
+                if isAftCav
+                    dxO = xRim - rO(1);
+                    if dxO > 1e-7
+                        tO = dxO / u(1);
+                        yO = rO(2) + tO * u(2);
+                        zO = rO(3) - zApCtr + tO * u(3);
+                        if (yO^2 + zO^2) > rBaseSq
+                            continue;
+                        end
+                    end
+                end
+            end
             Ipoly = sum(waverider.rcs.facetPhaseIntegral(v1, v2, v3, repmat(nq, nT, 1), w));
             baseAmp = pref * Ipoly * exp(-1i * k0 * c);
 
@@ -145,8 +186,6 @@ function [S_mb, contrib, S_mb_pol] = doubleBounceGOPO(cp, uRadar, k0, wantContri
             Sd_VV = Sd_VV + ampVV;
             Sd_HV = Sd_HV + ampHV;
             if wantContrib
-                triA = 0.5 .* vecnorm(cross(v2 - v1, v3 - v1, 2), 2, 2);
-                rO = sum(((v1 + v2 + v3) ./ 3) .* triA, 1) ./ max(sum(triA), 1e-15);
                 Lhalf = 0.5 * ((kvec - u) * rO.' + c);
                 nRows = nRows + 1;
                 rows(nRows, :) = [amp, Lhalf, rO, ampHH, ampVV, ampHV, ampHV];

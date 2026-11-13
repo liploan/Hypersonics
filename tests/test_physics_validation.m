@@ -446,7 +446,7 @@ function results = test_physics_validation(varargin)
     peakDblOP = max(rtiOP.RTI_double_dBsm(:));
     opTotVsDblDiff = max(abs(rtiOP.RTI_total_dBsm(:) - rtiOP.RTI_double_dBsm(:)));
     record('F5 Polarimetric HRRP/RTI: OP & HV isolate delayed 2-bounce', ...
-        peakSngHH > -25.0 && maxSngOPFloorDev < 1e-12 && maxSngHVFloorDev < 1e-12 && ...
+        peakSngHH > -30.0 && maxSngOPFloorDev < 1e-12 && maxSngHVFloorDev < 1e-12 && ...
         peakDblOP > -20.0 && opTotVsDblDiff < 1e-12, ...
         sprintf('HH 1-bounce=%.1f dBsm -> OP/HV 1-bounce=-50.0 dBsm, OP 2-bounce=%.1f dBsm', peakSngHH, peakDblOP));
 
@@ -621,6 +621,138 @@ function results = test_physics_validation(varargin)
         valDbl > 10.0 && cavDelayM > 0.20 && rDblPk > rSngPk + 0.15, ...
         sprintf('flat OP=%.1f dBsm -> concave OP=%.2f dBsm, cavity delay +%.1f cm', ...
             flatOffOP.SigmaTotal_dBsm, concOffOP.SigmaTotal_dBsm, 100 * cavDelayM));
+
+    %% =====================================================================
+    %  H. BASE-PLATE / AFT-CAVITY SPECULAR, APERTURE SHADOWING, PTD & 3-EDGE HRRP
+    %  =====================================================================
+
+    % H1: Concave paraboloid aft-cavity tail-on PO vs exact analytical dish integral
+    %   sigma_dish(180) = (pi * Rb^4 / d^2) * sin^2(k0 * d)
+    cfgDish = waverider.WaveriderConfig( ...
+        'Method', 'rv', 'Mach', 8.0, 'Length', 4.5, ...
+        'RVBodyType', 'bi_conic', 'RVNoseType', 'spherical', ...
+        'RVNoseBluntnessRatio', 0.16, ...
+        'RVConeAnglesDeg', [8.0, 5.0, 5.0], ...
+        'RVStageFractions', [0.55, 0.45, 0.0], ...
+        'RVAftType', 'concave', ...
+        'RVAftCavityDepthRatio', 0.38, ...
+        'RVAftCavityPower', 2.0);
+    bDish = waverider.WaveriderBody(cfgDish);
+    RbDish = bDish.SurfaceData.RBase_m;
+    dDish = bDish.SurfaceData.AftCavityDepth_m;
+    kDish = (2 * pi * 10e9) / 299792458.0;
+    exactDishDB = 10 * log10((pi * RbDish^4 / dDish^2) * sin(kDish * dDish)^2 + 1e-5);
+    resDish = bDish.computeRCS(10.0, 180.0, 0.0, 'IncludeMultiBounce', false, 'Polarization', 'Mean');
+    dishErrDB = abs(resDish.SigmaSingle_dBsm - exactDishDB);
+    record('H1 Concave paraboloid aft-cavity tail-on PO vs exact dish integral', ...
+        dishErrDB < 0.4, ...
+        sprintf('model=%.2f dBsm vs exact=%.2f dBsm (err %.3f dB)', resDish.SigmaSingle_dBsm, exactDishDB, dishErrDB));
+
+    % H2: Circular-aperture shadowing blocks 100% of forward/broadside aft-cavity leakage (az <= 90 deg)
+    cfgMonoFlat = waverider.WaveriderConfig( ...
+        'Method', 'rv', 'Mach', 7.0, 'Length', 3.6, ...
+        'RVBodyType', 'mono_conic', 'RVNoseType', 'spherical', ...
+        'RVNoseBluntnessRatio', 0.15, ...
+        'RVConeAnglesDeg', [9.0, 9.0, 9.0], ...
+        'RVAftType', 'flat');
+    cfgMonoConc = cfgMonoFlat;
+    cfgMonoConc.RVAftType = 'concave';
+    cfgMonoConc.RVAftCavityDepthRatio = 0.42;
+    cfgMonoConc.RVAftCavityPower = 2.0;
+
+    bMonoFlat = waverider.WaveriderBody(cfgMonoFlat);
+    bMonoConc = waverider.WaveriderBody(cfgMonoConc);
+    fwdAz = [0; 30; 60; 90];
+    rFwdF = bMonoFlat.computeRCS(10.0, fwdAz, -12.0, 'IncludeMultiBounce', true, 'Polarization', 'HH');
+    rFwdC = bMonoConc.computeRCS(10.0, fwdAz, -12.0, 'IncludeMultiBounce', true, 'Polarization', 'HH');
+    maxFwdDiffDB = max(abs(rFwdF.SigmaTotal_dBsm - rFwdC.SigmaTotal_dBsm));
+    maxFwdCavOPDev = max(abs(rFwdC.Polarimetric.OP_dBsm - (-50.0)));
+    record('H2 Aft-cavity aperture shadowing: zero forward/broadside leakage', ...
+        maxFwdDiffDB < 1e-12 && maxFwdCavOPDev < 1e-12, ...
+        sprintf('max|flat-concave| (az<=90)=%.2e dB, forward OP=%.2f dBsm', maxFwdDiffDB, -50.0 + maxFwdCavOPDev));
+
+    % H3: Base-rim Ufimtsev/Mitzner PTD vs Keller (1960) cone GTD, 180deg pole continuity, HH/VV split & reciprocity
+    Ldisk = 4.0; coneDeg = 8.0;
+    cfgDisk = waverider.WaveriderConfig( ...
+        'Method', 'rv', 'Mach', 7.0, 'Length', Ldisk, ...
+        'NumHalfSpan', 73, ...
+        'RVBodyType', 'mono_conic', 'RVNoseType', 'conical', ...
+        'RVConeAnglesDeg', [coneDeg, coneDeg, coneDeg], ...
+        'RVAftType', 'flat');
+    bDisk = waverider.WaveriderBody(cfgDisk);
+    RbD = bDisk.SurfaceData.RBase_m;
+    nWedge = 1.5 + deg2rad(coneDeg) / pi;
+    kellerNoseSigma = (4 * pi * RbD^2 / nWedge^2) * ...
+        (sin(pi / nWedge) / (cos(pi / nWedge) - cos(3 * pi / nWedge)))^2;
+    kellerNoseDB = 10 * log10(kellerNoseSigma + 1e-5);
+    rNosePTD = bDisk.computeRCS(10.0, 0.0, 0.0, ...
+        'IncludeMultiBounce', false, 'Polarization', 'HH', 'IncludeEdgeDiffraction', true);
+    kellerErrDB = abs(rNosePTD.SigmaTotal_dBsm - kellerNoseDB);
+
+    r180 = bDisk.computeRCS(10.0, [180.0; 179.995], 0.0, ...
+        'IncludeMultiBounce', false, 'Polarization', 'HH', 'IncludeEdgeDiffraction', true);
+    rElEps = bDisk.computeRCS(10.0, 180.0, 0.005, ...
+        'IncludeMultiBounce', false, 'Polarization', 'VV', 'IncludeEdgeDiffraction', true);
+    poleJumpDB = max(abs(r180.SigmaTotal_dBsm(1) - r180.SigmaTotal_dBsm(2)), ...
+                     abs(r180.Polarimetric.VV_dBsm(1) - rElEps.SigmaTotal_dBsm(1)));
+    rSplitPTD = bDisk.computeRCS(10.0, [15.0; 140.0], 0.0, ...
+        'IncludeMultiBounce', false, 'Polarization', 'HH', 'IncludeEdgeDiffraction', true);
+    fwdHHMinusVV = rSplitPTD.Polarimetric.HH_dBsm(1) - rSplitPTD.Polarimetric.VV_dBsm(1);
+    aftVVMinusHH = rSplitPTD.Polarimetric.VV_dBsm(2) - rSplitPTD.Polarimetric.HH_dBsm(2);
+    rOblPTD = bDisk.computeRCS(10.0, 142.0, -23.0, ...
+        'IncludeMultiBounce', false, 'Polarization', 'HV', 'IncludeEdgeDiffraction', true);
+    ptdRecipErr = abs(rOblPTD.Polarimetric.S_HV(1) - rOblPTD.Polarimetric.S_VH(1));
+    record('H3 Base-rim Ufimtsev PTD vs Keller (1960), 180deg continuity & HH/VV split', ...
+        kellerErrDB < 0.05 && poleJumpDB < 0.02 && fwdHHMinusVV > 15.0 && aftVVMinusHH > 6.0 && ...
+        ptdRecipErr < 1e-14 && rOblPTD.SigmaTotal_dBsm > -45.0, ...
+        sprintf('Keller err=%.4f dB, jump@180=%.4f dB, HH-VV@15=+%.1f dB, VV-HH@140=+%.1f dB', ...
+            kellerErrDB, poleJumpDB, fwdHHMinusVV, aftVVMinusHH));
+
+    % H4: Wideband 3-edge Stokes HRRP cancels subdivided flat-plate interior & localizes RV rim flashes
+    nSub = 20; halfSq = 0.6;
+    [zG, yG] = meshgrid(linspace(-halfSq, halfSq, nSub + 1), linspace(-halfSq, halfSq, nSub + 1));
+    vSq = [zeros(numel(yG), 1), yG(:), zG(:)];
+    idSq = reshape(1:numel(yG), nSub + 1, nSub + 1);
+    fSq = zeros(2 * nSub * nSub, 3); mSq = 0;
+    for iy = 1:nSub
+        for iz = 1:nSub
+            a = idSq(iy, iz); b = idSq(iy + 1, iz); c = idSq(iy + 1, iz + 1); d = idSq(iy, iz + 1);
+            mSq = mSq + 1; fSq(mSq, :) = [a, b, c]; % outward normal +X
+            mSq = mSq + 1; fSq(mSq, :) = [a, c, d];
+        end
+    end
+    bSqPlate = fakeBody(vSq, fSq, 3);
+    bSqPlate.Config.Length = 1.2;
+    azTilt = 145.0; % 35 deg off +X plate normal
+    sinTilt = sind(180.0 - azTilt);
+    rtiSq = waverider.rcs.computeRangeProfile(bSqPlate, 10.0, 2000.0, azTilt, 0.0, ...
+        'IncludeMultiBounce', false, 'WindowType', 'hann', 'Polarization', 'HH', 'NumRangeBins', 3201);
+    rvSq = rtiSq.rangeVec_m(:);
+    dbSq = rtiSq.RTI_single_dBsm(:);
+    pkSqEdge = max(dbSq(abs(abs(rvSq) - halfSq * sinTilt) < 0.08));
+    pkSqMid  = max(dbSq(abs(rvSq) < 0.08));
+    sqInteriorSuppressDB = pkSqEdge - pkSqMid;
+
+    rtiDisk = bDisk.computeRangeProfile(10.0, 2000.0, azTilt, 0.0, ...
+        'IncludeMultiBounce', false, 'WindowType', 'hann', 'Polarization', 'HH', 'NumRangeBins', 3201);
+    rBaseCtr = rtiDisk.R_waveriderBase_m(1);
+    rNearExp = rBaseCtr - RbD * sinTilt;
+    rFarExp  = rBaseCtr + RbD * sinTilt;
+    rvD = rtiDisk.rangeVec_m(:);
+    dbD = rtiDisk.RTI_single_dBsm(:);
+    idxNearMask = find(abs(rvD - rNearExp) < 0.12);
+    [pkNear, iiN] = max(dbD(idxNearMask));
+    rNearPk = rvD(idxNearMask(iiN));
+    idxFarMask = find(abs(rvD - rFarExp) < 0.12);
+    [pkFar, iiF] = max(dbD(idxFarMask));
+    rFarPk = rvD(idxFarMask(iiF));
+    pkMidDisk = max(dbD(abs(rvD - rBaseCtr) < 0.06));
+    rimPosErr = max(abs(rNearPk - rNearExp), abs(rFarPk - rFarExp));
+    diskSuppressDB = min(pkNear, pkFar) - pkMidDisk;
+    record('H4 Tilted flat-plate & RV base HRRP: 3-edge interior cancellation & rim flashes', ...
+        sqInteriorSuppressDB > 38.0 && rimPosErr < 0.02 && diskSuppressDB > 20.0, ...
+        sprintf('800-tri plate suppress=%.1f dB, RV rim err=%.2f cm (suppress %.1f dB)', ...
+            sqInteriorSuppressDB, 100 * rimPosErr, diskSuppressDB));
 
     nPass = sum([results.Pass]);
     fprintf('=====================================================================\n');

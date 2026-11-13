@@ -12,6 +12,7 @@ function [fig, summaryMetrics] = plotRCSAnalysis(body, varargin)
     addParameter(p, 'Visible', 'on', @(x) ischar(x) || isstring(x));
     addParameter(p, 'VentralElevationDeg', -20.0, @isnumeric);
     addParameter(p, 'Polarization', 'Mean', @(x) ischar(x) || isstring(x));
+    addParameter(p, 'IncludeEdgeDiffraction', false, @islogical);
     parse(p, varargin{:});
     opts = p.Results;
 
@@ -31,22 +32,28 @@ function [fig, summaryMetrics] = plotRCSAnalysis(body, varargin)
                   0.85, 0.28, 0.15;
                   0.58, 0.20, 0.72];
 
-    % 1. Compute Azimuthal Sweep (0 to 180 deg) at Ventral Elevation
-    azVec = linspace(0.0, 180.0, 181).';
+    % 1. Compute Azimuthal Sweep (0 to 180 deg) with 0.25-deg refinement across nose & aft base lobes
+    azVec = unique([0.0:0.25:6.0, 6.0:1.0:172.0, 172.0:0.25:180.0]).';
     rcsAz = waverider.rcs.computeRCS(body, bandFreqsGHz, azVec, opts.VentralElevationDeg, ...
-        'Polarization', opts.Polarization, 'PrecomputedConcavePairs', cp);
+        'Polarization', opts.Polarization, 'IncludeEdgeDiffraction', opts.IncludeEdgeDiffraction, ...
+        'PrecomputedConcavePairs', cp);
 
-    % 2. Compute Elevation Cut (-90 deg Ventral to +90 deg Dorsal) at Oblique Az = 45 deg
-    elVec = linspace(-90.0, 90.0, 181).';
+    % 2. Compute Elevation Cut (-90 deg Ventral to +90 deg Dorsal) with 0.25-deg horizon refinement
+    elVec = unique([-90.0:1.0:-6.0, -6.0:0.25:6.0, 6.0:1.0:90.0]).';
     rcsEl = waverider.rcs.computeRCS(body, [0.5, 3.0, 10.0], 45.0, elVec, ...
-        'Polarization', opts.Polarization, 'PrecomputedConcavePairs', cp);
+        'Polarization', opts.Polarization, 'IncludeEdgeDiffraction', opts.IncludeEdgeDiffraction, ...
+        'PrecomputedConcavePairs', cp);
+    rcsElTail = waverider.rcs.computeRCS(body, 10.0, 180.0, elVec, ...
+        'Polarization', opts.Polarization, 'IncludeEdgeDiffraction', opts.IncludeEdgeDiffraction, ...
+        'PrecomputedConcavePairs', cp);
 
-    % 3. Compute Continuous Frequency Sweep (0.3 GHz UHF to 12.0 GHz X-band)
+    % 3. Compute Continuous Frequency Sweep (0.3 GHz UHF to 12.0 GHz X-band) including Tail-On Base Normal
     freqSweepGHz = linspace(0.3, 12.0, 60);
-    aspectAz = [0.0;   45.0;  45.0;  85.0];
-    aspectEl = [-10.0; -22.0; +22.0; -20.0];
+    aspectAz = [0.0;   45.0;  45.0;  85.0;  180.0];
+    aspectEl = [-10.0; -22.0; +22.0; -20.0; 0.0];
     rcsFreq = waverider.rcs.computeRCS(body, freqSweepGHz, aspectAz, aspectEl, ...
-        'Polarization', opts.Polarization, 'PrecomputedConcavePairs', cp);
+        'Polarization', opts.Polarization, 'IncludeEdgeDiffraction', opts.IncludeEdgeDiffraction, ...
+        'PrecomputedConcavePairs', cp);
 
     fig = figure('Color', 'w', 'Position', [55, 55, 1420, 890], 'Visible', opts.Visible);
     waverider.viz.stylePublicationFigure(fig, 'init');
@@ -62,18 +69,18 @@ function [fig, summaryMetrics] = plotRCSAnalysis(body, varargin)
     ax1 = nexttile(tl, 1);
     hold(ax1, 'on');
     for b = 1:numel(bandFreqsGHz)
-        % Smooth over 3 deg running window to show envelope clearly alongside coherentlobes
-        sigSmooth = movmean(rcsAz.SigmaTotal_dBsm(:, b), 3);
-        plot(ax1, azVec, sigSmooth, '-', 'Color', bandColors(b, :), 'LineWidth', 2.0, ...
+        plot(ax1, azVec, rcsAz.SigmaTotal_dBsm(:, b), '-', 'Color', bandColors(b, :), 'LineWidth', 1.9, ...
             'DisplayName', bandNames{b});
     end
+    azPeakDB = max(rcsAz.SigmaTotal_dBsm(:));
+    ylim(ax1, [-45, max(25, min(55, ceil((azPeakDB + 3) / 5) * 5))]);
     xline(ax1, 68.0, 'k:', 'LE Normal Specular', 'LineWidth', 1.3, ...
         'LabelVerticalAlignment', 'bottom', 'HandleVisibility', 'off');
     grid(ax1, 'on');
     xlim(ax1, [0, 180]);
     xlabel(ax1, 'Azimuth Angle \psi [deg] (0^\circ = Nose-On, 90^\circ = Broadside, 180^\circ = Tail)');
     ylabel(ax1, 'Monostatic RCS \sigma [dBsm]');
-    title(ax1, sprintf('Ventral Azimuthal RCS Pattern (Elevation \\theta_{el} = %.0f^\\circ Look-Up)', ...
+    title(ax1, sprintf('Azimuthal RCS Pattern (Elevation \\theta_{el} = %.0f^\\circ)', ...
         opts.VentralElevationDeg), 'FontWeight', 'bold');
     legend(ax1, 'Location', 'northwest', 'FontSize', 8);
 
@@ -85,21 +92,23 @@ function [fig, summaryMetrics] = plotRCSAnalysis(body, varargin)
     elColors = [0.15, 0.48, 0.82; 0.90, 0.55, 0.10; 0.58, 0.20, 0.72];
     elFreqNames = {'UHF (0.5 GHz)', 'S-Band (3.0 GHz)', 'X-Band (10.0 GHz)'};
     for k = 1:3
-        totCurve = movmean(rcsEl.SigmaTotal_dBsm(:, k), 3);
-        sngCurve = movmean(rcsEl.SigmaSingle_dBsm(:, k), 3);
-        plot(ax2, elVec, totCurve, '-', 'Color', elColors(k, :), 'LineWidth', 2.2, ...
-            'DisplayName', sprintf('%s Total (PO + Multi-Bounce)', elFreqNames{k}));
-        plot(ax2, elVec, sngCurve, '--', 'Color', elColors(k, :), 'LineWidth', 1.4, ...
-            'DisplayName', sprintf('%s Single-Bounce Only', elFreqNames{k}));
+        plot(ax2, elVec, rcsEl.SigmaTotal_dBsm(:, k), '-', 'Color', elColors(k, :), 'LineWidth', 2.1, ...
+            'DisplayName', sprintf('%s Total (\\psi=45^\\circ)', elFreqNames{k}));
+        plot(ax2, elVec, rcsEl.SigmaSingle_dBsm(:, k), '--', 'Color', elColors(k, :), 'LineWidth', 1.3, ...
+            'DisplayName', sprintf('%s Single-Bounce', elFreqNames{k}));
     end
+    plot(ax2, elVec, rcsElTail.SigmaTotal_dBsm(:, 1), '-', 'Color', [0.85, 0.22, 0.18], 'LineWidth', 1.9, ...
+        'DisplayName', 'X-Band Tail-On (\psi=180^\circ)');
+    elPeakDB = max([rcsEl.SigmaTotal_dBsm(:); rcsElTail.SigmaTotal_dBsm(:)]);
+    ylim(ax2, [-45, max(35, min(55, ceil((elPeakDB + 3) / 5) * 5))]);
     xline(ax2, 0.0, 'k-', 'Horizon (\theta_{el} = 0^\circ)', 'LineWidth', 1.4, ...
         'LabelVerticalAlignment', 'bottom', 'HandleVisibility', 'off');
     grid(ax2, 'on');
     xlim(ax2, [-90, 90]);
-    xlabel(ax2, 'Elevation Angle \theta_{el} [deg] (< 0^\circ Ventral Concave Underside | > 0^\circ Dorsal Canopy)');
+    xlabel(ax2, 'Elevation Angle \theta_{el} [deg] (< 0^\circ Ventral | 0^\circ Base Specular | > 0^\circ Dorsal)');
     ylabel(ax2, 'Monostatic RCS \sigma [dBsm]');
-    title(ax2, 'Ventral vs. Dorsal Elevation Cut at Oblique Azimuth \psi = 45^\circ', 'FontWeight', 'bold');
-    legend(ax2, 'Location', 'northeast', 'FontSize', 7.5, 'NumColumns', 2);
+    title(ax2, 'Elevation Cut (\psi = 45^\circ Oblique & \psi = 180^\circ Tail-On)', 'FontWeight', 'bold');
+    legend(ax2, 'Location', 'northeast', 'FontSize', 7.2, 'NumColumns', 2);
 
     % ---------------------------------------------------------------------
     % Tile 3: Continuous Frequency Sweep (0.3 GHz UHF to 12.0 GHz X-Band)
@@ -109,14 +118,14 @@ function [fig, summaryMetrics] = plotRCSAnalysis(body, varargin)
     aspectLabels = {'Nose-On Ventral (\psi=0^\circ, \theta_{el}=-10^\circ)', ...
                     'Oblique Ventral Concave Trough (\psi=45^\circ, \theta_{el}=-22^\circ)', ...
                     'Oblique Dorsal Convex Canopy (\psi=45^\circ, \theta_{el}=+22^\circ)', ...
-                    'Broadside Ventral (\psi=85^\circ, \theta_{el}=-20^\circ)'};
-    aspectStyles = {'-o', '-s', '--^', '-d'};
-    aspectCols = [0.15, 0.48, 0.82; 0.85, 0.25, 0.15; 0.20, 0.68, 0.35; 0.58, 0.20, 0.72];
+                    'Broadside Ventral (\psi=85^\circ, \theta_{el}=-20^\circ)', ...
+                    'Tail-On Base Normal (\psi=180^\circ, \theta_{el}=0^\circ)'};
+    aspectStyles = {'-o', '-s', '--^', '-d', '-p'};
+    aspectCols = [0.15, 0.48, 0.82; 0.85, 0.25, 0.15; 0.20, 0.68, 0.35; 0.58, 0.20, 0.72; 0.90, 0.58, 0.08];
 
-    for a = 1:4
-        yCurve = movmean(rcsFreq.SigmaTotal_dBsm(a, :), 3);
-        plot(ax3, freqSweepGHz, yCurve, aspectStyles{a}, 'Color', aspectCols(a, :), ...
-            'LineWidth', 2.0, 'MarkerSize', 4, 'MarkerIndices', 1:6:numel(freqSweepGHz), ...
+    for a = 1:numel(aspectLabels)
+        plot(ax3, freqSweepGHz, rcsFreq.SigmaTotal_dBsm(a, :), aspectStyles{a}, 'Color', aspectCols(a, :), ...
+            'LineWidth', 1.9, 'MarkerSize', 4, 'MarkerIndices', 1:6:numel(freqSweepGHz), ...
             'DisplayName', aspectLabels{a});
     end
     % Mark IEEE radar band boundaries
