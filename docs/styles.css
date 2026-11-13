@@ -293,7 +293,13 @@ button.btn-primary:hover {
   border-block-end: 2.5px solid currentColor;
 }
 
-/* Keep padding/margins/borders OFF [role="tabpanel"] so hidden="until-found" renders no strip */
+/* Keep padding/margins/borders OFF [role="tabpanel"] so hidden="until-found" renders no strip,
+   and wrap panels in a zero-gap container so hidden="until-found" panels add no flex gap */
+.arch-panels {
+  margin: 0;
+  padding: 0;
+}
+
 .arch-panel-inner {
   display: flex;
   flex-direction: column;

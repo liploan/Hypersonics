@@ -3281,6 +3281,7 @@
   }
 
   return {
+    VERSION: "20261113-rv",
     C0,
     solveObliqueShock,
     solveTaylorMaccoll,

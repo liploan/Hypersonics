@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="color-scheme" content="dark light" />
   <title>Hypersonic Parametric Watertight Waverider &amp; RCS Studio</title>
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=20261113-rv" />
 </head>
 <body>
   <header class="app-header">
@@ -37,7 +37,6 @@
           role="tab"
           id="tab-waverider"
           aria-selected="true"
-          aria-controls="panel-waverider"
           tabindex="0"
         >Waverider</button>
         <button
@@ -45,11 +44,11 @@
           role="tab"
           id="tab-rv"
           aria-selected="false"
-          aria-controls="panel-rv"
           tabindex="-1"
         >Reentry Vehicle (RV)</button>
       </div>
 
+      <div class="arch-panels">
       <!-- TAB PANEL 1: Waverider Glide Body (Default Active, 100% Preserved) -->
       <div role="tabpanel" id="panel-waverider" aria-labelledby="tab-waverider">
         <div class="arch-panel-inner">
@@ -285,6 +284,7 @@
             </div>
           </section>
         </div>
+      </div>
       </div>
 
       <!-- 3. Conformal Aft Frustum & Conical Rocket Booster -->
@@ -586,7 +586,7 @@
     </div>
   </dialog>
 
-  <script src="physics.js"></script>
-  <script src="app.js"></script>
+  <script src="physics.js?v=20261113-rv"></script>
+  <script src="app.js?v=20261113-rv"></script>
 </body>
 </html>

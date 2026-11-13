@@ -199,16 +199,26 @@
   const archTablist = document.querySelector(".arch-tabs");
   const archTabs = archTablist ? Array.from(archTablist.querySelectorAll('[role="tab"]')) : [];
 
-  function selectVehicleTab(nextTab, moveFocus = false) {
+  function getPanelForTab(tab) {
+    return tab && tab.id
+      ? document.querySelector(`[role="tabpanel"][aria-labelledby="${tab.id}"]`)
+      : null;
+  }
+
+  function selectVehicleTab(nextTab, moveFocus = false, skipSchedule = false) {
     if (!nextTab) return;
     const nextArch = nextTab.id === "tab-rv" ? "rv" : "waverider";
     archTabs.forEach((tab) => {
       const selected = tab === nextTab;
       tab.setAttribute("aria-selected", String(selected));
       tab.tabIndex = selected ? 0 : -1;
-      const panel = document.getElementById(tab.getAttribute("aria-controls"));
+      const panel = getPanelForTab(tab);
       if (panel) {
-        panel.hidden = selected ? false : "until-found";
+        if (selected) {
+          panel.removeAttribute("hidden");
+        } else {
+          panel.hidden = "until-found";
+        }
       }
     });
     if (nextArch === "rv" && !hasInitializedRVTab) {
@@ -220,19 +230,25 @@
     activeArch = nextArch;
     syncRVConditionalInertStates();
     if (moveFocus) nextTab.focus();
-    scheduleUpdate("geometry");
+    if (!skipSchedule) scheduleUpdate("geometry");
   }
 
   if (archTablist) {
+    archTablist.addEventListener("click", (e) => {
+      const tab = e.target.closest('[role="tab"]');
+      if (tab && archTablist.contains(tab)) {
+        selectVehicleTab(tab, false);
+      }
+    });
     archTabs.forEach((tab) => {
-      tab.addEventListener("click", () => selectVehicleTab(tab, false));
-      const panel = document.getElementById(tab.getAttribute("aria-controls"));
+      const panel = getPanelForTab(tab);
       if (panel) {
         panel.addEventListener("beforematch", () => selectVehicleTab(tab, false));
       }
     });
     archTablist.addEventListener("keydown", (e) => {
-      const idx = archTabs.indexOf(e.target);
+      const currentTab = e.target.closest('[role="tab"]');
+      const idx = currentTab ? archTabs.indexOf(currentTab) : -1;
       if (idx === -1) return;
       const dir = getComputedStyle(archTablist).direction === "rtl" ? -1 : 1;
       let nextIdx = -1;
@@ -1407,9 +1423,9 @@
       [{ x: 0, label: "Horizon (\u03B8_el = 0\u00B0)" }]
     );
 
-    const vX_dB = 10.0 * Math.log10(ventralXSum / nSec);
-    const dX_dB = 10.0 * Math.log10(dorsalXSum / nSec);
-    const vUHF_dB = 10.0 * Math.log10(ventralUHFSum / nSec);
+    const vX_dB = 10.0 * Math.log10(Math.max(ventralXSum / nSec, 1e-8));
+    const dX_dB = 10.0 * Math.log10(Math.max(dorsalXSum / nSec, 1e-8));
+    const vUHF_dB = 10.0 * Math.log10(Math.max(ventralUHFSum / nSec, 1e-8));
 
     document.getElementById("m-pairs").textContent = `${currentModel.totalConcavePairs} Pairs`;
     document.getElementById("m-mbgain").textContent =
@@ -1514,16 +1530,24 @@
     document.getElementById("val-rv-aftdepth").textContent = parseFloat(document.getElementById("rng-rv-aftdepth").value).toFixed(2);
     document.getElementById("val-rv-aftpower").textContent = parseFloat(document.getElementById("rng-rv-aftpower").value).toFixed(1);
 
-    currentModel = phys.buildWaveriderModel(cfg);
+    const badge = document.getElementById("watertight-badge");
+    try {
+      currentModel = phys.buildWaveriderModel(cfg);
+    } catch (err) {
+      badge.className = "badge-watertight is-fail";
+      badge.textContent = "\u26A0 Reload Required \u00B7 Cached physics.js Outdated (Press Cmd+Shift+R / Ctrl+F5)";
+      console.error(err);
+      return;
+    }
 
     // Dynamic Watertight Topology Badge (uses icon + text + border style, never color alone)
-    const badge = document.getElementById("watertight-badge");
+    const modePrefix = cfg.method === "rv" ? "RV &middot; " : "";
     if (currentModel.isWatertight) {
       badge.className = "badge-watertight";
-      badge.innerHTML = `&#10003; PASS &middot; 2-Manifold Watertight (&#967; = ${currentModel.euler})`;
+      badge.innerHTML = `&#10003; PASS &middot; ${modePrefix}2-Manifold Watertight (&#967; = ${currentModel.euler})`;
     } else {
       badge.className = "badge-watertight is-fail";
-      badge.innerHTML = `&#9888; FAIL &middot; Topology Alert (${currentModel.boundaryEdges} Open, &#967; = ${currentModel.euler})`;
+      badge.innerHTML = `&#9888; FAIL &middot; ${modePrefix}Topology Alert (${currentModel.boundaryEdges} Open, &#967; = ${currentModel.euler})`;
     }
 
     // Update Telemetry Ribbon
@@ -1863,6 +1887,10 @@
     }
   });
 
-  // Initialize synchronously on first paint
+  // Initialize synchronously on first paint (honor #rv deep-link hash if present)
+  if (window.location.hash.toLowerCase() === "#rv") {
+    const tabRVInit = document.getElementById("tab-rv");
+    if (tabRVInit) selectVehicleTab(tabRVInit, false, true);
+  }
   updateGeometryAndAll();
 })();
